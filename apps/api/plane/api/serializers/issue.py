@@ -31,6 +31,7 @@ from plane.utils.content_validator import (
     validate_html_content,
     validate_binary_data,
 )
+from plane.utils.labels import label_issue_count, validate_label_attrs, validate_label_limit
 
 from plane.utils.workflow.guards import apply_create_rules, apply_update_rules
 
@@ -43,6 +44,15 @@ from .user import UserLiteSerializer
 # Django imports
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+
+
+class IssueTypeLiteSerializer(serializers.ModelSerializer):
+    """Minimal work item type projection used by v1 issue responses."""
+
+    class Meta:
+        model = IssueType
+        fields = ["id", "key", "name", "logo_props", "is_epic"]
+        read_only_fields = fields
 
 
 class IssueSerializer(BaseSerializer):
@@ -67,6 +77,12 @@ class IssueSerializer(BaseSerializer):
     )
     type_id = serializers.PrimaryKeyRelatedField(
         source="type", queryset=IssueType.objects.all(), required=False, allow_null=True
+    )
+    type = IssueTypeLiteSerializer(read_only=True)
+    # The v1 surface historically accepted `state_id`; keep that alias writable so
+    # workflow guards see the same `state` value as the app surface.
+    state_id = serializers.PrimaryKeyRelatedField(
+        source="state", queryset=State.all_state_objects.all(), required=False, allow_null=True
     )
 
     class Meta:
@@ -116,6 +132,7 @@ class IssueSerializer(BaseSerializer):
 
         # Validate labels are from project
         if data.get("labels", []):
+            validate_label_limit(data["labels"], field_name="labels")
             data["labels"] = Label.objects.filter(
                 project_id=self.context.get("project_id"), id__in=data["labels"]
             ).values_list("id", flat=True)
@@ -232,7 +249,7 @@ class IssueSerializer(BaseSerializer):
 
     def update(self, instance, validated_data):
         # Type, hierarchy and workflow transition rules (no-op when types are disabled).
-        validated_data = apply_update_rules(instance, validated_data)
+        validated_data = apply_update_rules(instance, validated_data, user=self.context.get("user"))
 
         assignees = validated_data.pop("assignees", None)
         labels = validated_data.pop("labels", None)
@@ -366,6 +383,14 @@ class LabelCreateUpdateSerializer(BaseSerializer):
             "deleted_at",
         ]
 
+    def validate(self, attrs):
+        return validate_label_attrs(
+            attrs,
+            instance=self.instance,
+            workspace_id=self.context.get("workspace_id"),
+            project_id=self.context.get("project_id"),
+        )
+
 
 class LabelSerializer(BaseSerializer):
     """
@@ -374,6 +399,8 @@ class LabelSerializer(BaseSerializer):
     Provides comprehensive label information including hierarchical relationships,
     visual properties, and organizational data for work item tagging.
     """
+
+    issue_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Label
@@ -388,6 +415,9 @@ class LabelSerializer(BaseSerializer):
             "updated_at",
             "deleted_at",
         ]
+
+    def get_issue_count(self, obj):
+        return label_issue_count(obj)
 
 
 class IssueLinkCreateSerializer(BaseSerializer):

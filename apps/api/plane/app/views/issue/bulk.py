@@ -22,7 +22,7 @@ from plane.app.views.base import BaseAPIView
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.db.models import Issue
 from plane.utils.host import base_host
-from plane.utils.workflow.transition import WorkflowError
+from plane.utils.workflow.transition import WorkflowError, audit_workflow_denial
 
 BULK_LIMIT = 100
 
@@ -93,11 +93,23 @@ class BulkOperationIssuesEndpoint(BaseAPIView):
             try:
                 with transaction.atomic():
                     serializer = IssueCreateSerializer(
-                        issue, data=dict(properties), partial=True, context={"project_id": project_id}
+                        issue,
+                        data=dict(properties),
+                        partial=True,
+                        context={"project_id": project_id, "user": request.user},
                     )
                     serializer.is_valid(raise_exception=True)
                     serializer.save()
             except WorkflowError as error:
+                # The per-item transaction above has rolled back; write the denial after it
+                # so the audit row cannot be rolled back with the rejected state change.
+                audit_workflow_denial(
+                    issue,
+                    request.user,
+                    error,
+                    to_state_id=properties.get("state_id"),
+                    source="bulk",
+                )
                 failed.append(_failure(issue_id, error.code, error.message))
                 continue
             except ValidationError as error:

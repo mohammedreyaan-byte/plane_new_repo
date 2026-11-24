@@ -164,3 +164,14 @@ Please read [CONTRIBUTING.md](https://github.com/makeplane/plane/blob/master/CON
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](https://github.com/makeplane/plane/blob/master/LICENSE.txt).
+
+## Recent implementation notes (2026-11-24)
+
+Locally completed Plane CE feature work on branch `dev` (uncommitted):
+
+- **PLN-007 — Type filters / grouping / views:** strict `type_id` / `type_id__in` filtering (max 20, invalid UUID → 400), `group_by=type_id` / `sub_group_by=type_id`, `order_by=type__name`, nested `type` projections in list/detail/v1/webhook payloads, analytics `type` dimension, idempotent `seed_standard_views --workspace <slug>` command, saved-view `issue_type` display property.
+- **PLN-009 — Workflow boards / drag enforcement:** per-type board metadata via paginator `extra_stats`, `WorkflowState.wip_limit`, `Project.board_wip_hard_limit`, `/board/reorder/` same-column ordering, drag transitions through `PATCH state_id` → `transition_issue()` (no second state-write endpoint), WIP warn-only by default / hard block when enabled.
+- **Gap closure for prompts 01/02/03/04/05/15:** bulk workspace invitations, workspace Issue Types catalogue, state-write allowlist + CI guard (`check_state_writes.py`), admin workflow clone/optional replace, state audit/repair/purge/merge commands, v1 API-key `state_id` alias, capability slug/UUID normalization.
+- **Verification:** targeted backend contract suite green; `pnpm --filter @plane/types build` + `pnpm --filter web check:types` pass; `git diff --check` clean; API/web rebuilt and restarted without touching volumes.
+
+Full details: `PROJECT_SUMMARY_2026-11-24.md` and `IMPLEMENTATION_STATUS.md` (both ignored by Git).

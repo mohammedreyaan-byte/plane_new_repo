@@ -10,12 +10,15 @@ import { Button } from "@plane/propel/button";
 import type { IState } from "@plane/types";
 import { Popover, Input, TextArea } from "@plane/ui";
 
+export type TStateWorkflowOption = { id: string; name: string };
+
 type TStateForm = {
   data: Partial<IState>;
   onSubmit: (formData: Partial<IState>) => Promise<{ status: string }>;
   onCancel: () => void;
   buttonDisabled: boolean;
   buttonTitle: string;
+  workflows?: TStateWorkflowOption[];
 };
 
 function PopoverButton({ color }: { color?: string }) {
@@ -30,10 +33,11 @@ function PopoverButton({ color }: { color?: string }) {
 }
 
 export function StateForm(props: TStateForm) {
-  const { data, onSubmit, onCancel, buttonDisabled, buttonTitle } = props;
+  const { data, onSubmit, onCancel, buttonDisabled, buttonTitle, workflows } = props;
   // states
   const [formData, setFromData] = useState<Partial<IState> | undefined>(undefined);
   const [errors, setErrors] = useState<Partial<Record<keyof IState, string>> | undefined>(undefined);
+  const [selectedWorkflows, setSelectedWorkflows] = useState<string[]>([]);
 
   useEffect(() => {
     if (data && !formData) setFromData(data);
@@ -56,7 +60,7 @@ export function StateForm(props: TStateForm) {
     }
 
     try {
-      await onSubmit(formData);
+      await onSubmit({ ...formData, workflow_ids: selectedWorkflows });
     } catch (error) {
       console.log("error", error);
     }
@@ -96,6 +100,33 @@ export function StateForm(props: TStateForm) {
           hasError={(errors && Boolean(errors.description)) || false}
           className="min-h-14 w-full resize-none text-13"
         />
+
+        {workflows && workflows.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-11 font-medium text-secondary">Add to workflows</p>
+            <div className="flex flex-wrap gap-2">
+              {workflows.map((workflow) => (
+                <label
+                  key={workflow.id}
+                  className="flex cursor-pointer items-center gap-1 rounded-sm border border-subtle px-1.5 py-0.5 text-11 text-secondary"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedWorkflows.includes(workflow.id)}
+                    onChange={() =>
+                      setSelectedWorkflows((current) =>
+                        current.includes(workflow.id)
+                          ? current.filter((id) => id !== workflow.id)
+                          : [...current, workflow.id]
+                      )
+                    }
+                  />
+                  {workflow.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center space-x-2">
           <Button onClick={formSubmit} variant="primary" size="lg" disabled={buttonDisabled}>

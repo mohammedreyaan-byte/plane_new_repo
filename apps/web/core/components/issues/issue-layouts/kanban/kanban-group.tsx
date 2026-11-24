@@ -162,11 +162,18 @@ export const KanbanGroup = observer(function KanbanGroup(props: IKanbanGroup) {
 
           if (!source || !destination) return;
 
-          if ((isWorkflowDropDisabled || isDropDisabled) && dropErrorMessage) {
+          // A workflow denial must block the local drop even when the column has
+          // no other drop error message. The server would refuse the same move.
+          if (isWorkflowDropDisabled || isDropDisabled) {
             setToast({
               type: TOAST_TYPE.WARNING,
               title: t("common.warning"),
-              message: dropErrorMessage,
+              message:
+                (isWorkflowDropDisabled
+                  ? workflowDisabledSource
+                    ? `Only permitted roles can move work items from ${workflowDisabledSource} to this state.`
+                    : "This state change is not allowed for your role."
+                  : dropErrorMessage) ?? "This move is not allowed.",
             });
             return;
           }

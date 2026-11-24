@@ -9,7 +9,7 @@ import { observer } from "mobx-react";
 // plane imports
 import { Button } from "@plane/propel/button";
 import { ChevronDownIcon } from "@plane/propel/icons";
-import { EUserProjectRoles, EUserWorkspaceRoles } from "@plane/types";
+import { EUserProjectRoles } from "@plane/types";
 // plane ui
 import { CustomMenu } from "@plane/ui";
 // components
@@ -36,12 +36,17 @@ const PROJECT_ROLE_OPTIONS: IRoleOption[] = [
 ];
 
 const WORKSPACE_ROLE_OPTIONS: IRoleOption[] = [
-  { value: String(EUserWorkspaceRoles.ADMIN), label: "Admin" },
-  { value: String(EUserWorkspaceRoles.MEMBER), label: "Member" },
-  { value: "12", label: "Developer" },
-  { value: "11", label: "QA" },
-  { value: String(EUserWorkspaceRoles.GUEST), label: "Guest" },
-  { value: "2", label: "Viewer" },
+  { value: "admin", label: "Admin" },
+  { value: "member", label: "Member" },
+  { value: "developer", label: "Developer" },
+  { value: "qa", label: "QA" },
+  { value: "guest", label: "Guest" },
+  { value: "viewer", label: "Viewer" },
+];
+
+const WORKSPACE_STATUS_OPTIONS: IRoleOption[] = [
+  { value: "active", label: "Active" },
+  { value: "pending", label: "Pending invitations" },
   { value: "suspended", label: "Suspended" },
 ];
 
@@ -93,6 +98,21 @@ export const MemberListFilters = observer(function MemberListFilters(props: Prop
     <div className="space-y-4">
       {/* Role Filter Group */}
       <RoleFilterGroup appliedFilters={appliedFilters} handleUpdate={handleUpdate} memberType={memberType} />
+      {memberType === "workspace" && (
+        <div className="space-y-2">
+          <FilterHeader title="Status" isPreviewEnabled handleIsPreviewEnabled={() => {}} />
+          <div className="space-y-1">
+            {WORKSPACE_STATUS_OPTIONS.map((option) => (
+              <FilterOption
+                key={`status-${option.value}`}
+                isChecked={appliedFilters?.includes(option.value) ?? false}
+                title={option.label}
+                onClick={() => handleUpdate(option.value)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 });

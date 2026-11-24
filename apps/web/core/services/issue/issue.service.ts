@@ -231,6 +231,24 @@ export class IssueService extends APIService {
       });
   }
 
+  /** Reorder work items inside one board column; state changes use patchIssue. */
+  async reorderBoardItems(
+    workspaceSlug: string,
+    projectId: string,
+    items: {
+      issue_id: string;
+      state_id: string;
+      before_id?: string | null;
+      after_id?: string | null;
+    }[]
+  ): Promise<void> {
+    return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/board/reorder/`, { items })
+      .then(() => undefined)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async deleteIssue(workspaceSlug: string, projectId: string, issuesId: string): Promise<any> {
     return this.delete(`/api/workspaces/${workspaceSlug}/projects/${projectId}/${this.serviceType}/${issuesId}/`)
       .then((response) => response?.data)

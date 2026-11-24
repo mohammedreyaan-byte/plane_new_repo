@@ -38,6 +38,7 @@ interface ILabelItemBlock {
   dragHandleRef: MutableRefObject<HTMLButtonElement | null>;
   disabled?: boolean;
   draggable?: boolean;
+  showUsageCount?: boolean;
 }
 
 export function LabelItemBlock(props: ILabelItemBlock) {
@@ -50,6 +51,7 @@ export function LabelItemBlock(props: ILabelItemBlock) {
     dragHandleRef,
     disabled = false,
     draggable = true,
+    showUsageCount = false,
   } = props;
   // states
   const [isMenuActive, setIsMenuActive] = useState(true);
@@ -70,6 +72,14 @@ export function LabelItemBlock(props: ILabelItemBlock) {
           />
         )}
         <LabelName color={label.color} name={label.name} isGroup={isLabelGroup ?? false} />
+        {showUsageCount && (
+          <span
+            className="ml-2 text-11 whitespace-nowrap text-tertiary"
+            aria-label={`${label.issue_count ?? 0} work items`}
+          >
+            {label.issue_count ?? 0} {label.issue_count === 1 ? "item" : "items"}
+          </span>
+        )}
       </div>
 
       {!disabled && (

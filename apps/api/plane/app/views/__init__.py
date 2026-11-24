@@ -63,6 +63,7 @@ from .workspace.member import (
 from .workspace.invite import (
     WorkspaceInvitationsViewset,
     WorkspaceBulkInviteEndpoint,
+    WorkspaceInvitationResendEndpoint,
     WorkspaceJoinEndpoint,
     UserWorkspaceInvitationsViewSet,
 )
@@ -122,6 +123,7 @@ from .asset.v2 import (
 )
 from .issue.base import (
     IssueListEndpoint,
+    IssueBoardReorderEndpoint,
     IssueViewSet,
     ProjectUserDisplayPropertyEndpoint,
     BulkDeleteIssuesEndpoint,
@@ -147,7 +149,7 @@ from .issue.attachment import (
 
 from .issue.comment import IssueCommentViewSet, CommentReactionViewSet
 
-from .issue.label import LabelViewSet, BulkCreateIssueLabelsEndpoint
+from .issue.label import LabelViewSet, LabelMergeEndpoint, BulkCreateIssueLabelsEndpoint
 
 from .issue.link import IssueLinkViewSet
 
@@ -266,10 +268,16 @@ from .report import (
 from .workflow import (
     ProjectWorkflowEndpoint,
     ProjectWorkflowDetailEndpoint,
+    WorkflowStateEndpoint,
+    ProjectWorkflowCloneEndpoint,
     WorkflowTransitionEndpoint,
     WorkflowTransitionDetailEndpoint,
     WorkflowResetEndpoint,
     WorkflowHealthEndpoint,
+    WorkflowExportEndpoint,
+    WorkflowImportEndpoint,
     IssueAllowedTransitionsEndpoint,
     IssueTransitionEndpoint,
+    WorkflowAllowedTransitionsEndpoint,
+    WorkflowAuditEndpoint,
 )

@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import React from "react";
+import React, { useContext } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // lucide icons
@@ -12,6 +12,7 @@ import { Minimize2, Maximize2, Circle } from "lucide-react";
 import { PlusIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { TIssue, ISearchIssueResponse, TIssueKanbanFilters, TIssueGroupByOptions } from "@plane/types";
+import { cn } from "@plane/utils";
 // ui
 import { CustomMenu } from "@plane/ui";
 // components
@@ -19,6 +20,7 @@ import { ExistingIssuesListModal } from "@/components/core/modals/existing-issue
 import { CreateUpdateIssueModal } from "@/components/issues/issue-modal/modal";
 // constants
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
+import { StoreContext } from "@/lib/store-context";
 import { CreateUpdateEpicModal } from "@/components/epic-modal";
 
 interface IHeaderGroupByCard {
@@ -56,6 +58,9 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
   const [openExistingIssueListModal, setOpenExistingIssueListModal] = React.useState(false);
   // hooks
   const storeType = useIssueStoreType();
+  const boardMetadata = useContext(StoreContext)?.issue.issueKanBanView.boardMetadata ?? null;
+  const boardColumn = boardMetadata?.columns.find((column) => column.state_id === column_id);
+  const wipReached = boardColumn?.wip_limit != null && (count || 0) >= boardColumn.wip_limit;
   // router
   const { workspaceSlug, projectId, moduleId, cycleId } = useParams();
 
@@ -133,6 +138,21 @@ export const HeaderGroupByCard = observer(function HeaderGroupByCard(props: IHea
           >
             {count || 0}
           </div>
+          {boardColumn?.wip_limit != null && (
+            <div
+              title={
+                boardMetadata?.board_wip_hard_limit
+                  ? "Hard WIP limit: moves into a full column are rejected"
+                  : "WIP limit: moves into a full column show a warning"
+              }
+              className={cn(
+                "flex-shrink-0 rounded-sm px-1 text-11 font-medium",
+                wipReached ? "bg-warning-subtle text-warning-primary" : "bg-layer-1 text-tertiary"
+              )}
+            >
+              WIP {count || 0}/{boardColumn.wip_limit}
+            </div>
+          )}
         </div>
 
         {sub_group_by === null && (

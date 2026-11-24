@@ -48,6 +48,7 @@ export const StateItem = observer(function StateItem(props: TStateItem) {
   const [closestEdge, setClosestEdge] = useState<string | null>(null);
   // derived values
   const isDraggable = totalStates === 1 ? false : true;
+  const usedByWorkflows = state.used_by_workflows ?? [];
   const commonStateItemListProps = {
     stateCount: totalStates,
     state: state,
@@ -153,6 +154,14 @@ export const StateItem = observer(function StateItem(props: TStateItem) {
             }}
             shouldTrackEvents={shouldTrackEvents}
           />
+        )}
+        {usedByWorkflows.length > 0 && (
+          <p data-ph-element="state-used-by-workflows" className="px-1 pt-1 text-11 text-tertiary">
+            <span className="font-medium text-secondary">Used by workflows:</span>{" "}
+            {usedByWorkflows
+              .map((workflow) => `${workflow.name}${workflow.type !== "default" ? ` (${workflow.type})` : ""}`)
+              .join(", ")}
+          </p>
         )}
       </div>
       {/* draggable drop bottom indicator */}

@@ -11,6 +11,7 @@ import type { IState, TStateGroups, TStateOperationsCallbacks } from "@plane/typ
 import { cn } from "@plane/utils";
 // components
 import { GroupItem } from "@/components/project-states";
+import type { TStateWorkflowOption } from "./create-update/form";
 
 type TGroupList = {
   groupedStates: Record<string, IState[]>;
@@ -20,6 +21,7 @@ type TGroupList = {
   groupListClassName?: string;
   groupItemClassName?: string;
   stateItemClassName?: string;
+  workflows?: TStateWorkflowOption[];
 };
 
 export const GroupList = observer(function GroupList(props: TGroupList) {
@@ -31,6 +33,7 @@ export const GroupList = observer(function GroupList(props: TGroupList) {
     groupListClassName,
     groupItemClassName,
     stateItemClassName,
+    workflows,
   } = props;
   // states
   const [groupsExpanded, setGroupsExpanded] = useState<Partial<TStateGroups>[]>([
@@ -77,6 +80,7 @@ export const GroupList = observer(function GroupList(props: TGroupList) {
             handleExpand={handleExpand}
             groupItemClassName={groupItemClassName}
             stateItemClassName={stateItemClassName}
+            workflows={workflows}
           />
         );
       })}

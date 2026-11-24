@@ -8,7 +8,7 @@ import { action, computed, makeObservable, observable } from "mobx";
 import { computedFn } from "mobx-utils";
 import { DRAG_ALLOWED_GROUPS } from "@plane/constants";
 // types
-import type { TIssueGroupByOptions } from "@plane/types";
+import type { TIssueGroupByOptions, TWorkflowBoardMetadata } from "@plane/types";
 // constants
 // store
 import type { IssueRootStore } from "./root.store";
@@ -19,6 +19,9 @@ export interface IIssueKanBanViewStore {
     subgroupByIssuesVisibility: string[];
   };
   isDragging: boolean;
+  /** Workflow-aware board payload returned by the issues list endpoint. */
+  boardMetadata: TWorkflowBoardMetadata | null;
+  collapsedColumns: string[];
   // computed
   getCanUserDragDrop: (
     group_by: TIssueGroupByOptions | undefined,
@@ -29,6 +32,21 @@ export interface IIssueKanBanViewStore {
   // actions
   handleKanBanToggle: (toggle: "groupByHeaderMinMax" | "subgroupByIssuesVisibility", value: string) => void;
   setIsDragging: (isDragging: boolean) => void;
+  setBoardMetadata: (metadata: TWorkflowBoardMetadata | null) => void;
+  toggleCollapsedColumn: (stateId: string) => void;
+}
+
+const COLLAPSED_COLUMNS_KEY = "plane-workflow-board-collapsed-columns";
+
+function readCollapsedColumns(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem(COLLAPSED_COLUMNS_KEY);
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export class IssueKanBanViewStore implements IIssueKanBanViewStore {
@@ -37,6 +55,8 @@ export class IssueKanBanViewStore implements IIssueKanBanViewStore {
     subgroupByIssuesVisibility: string[];
   } = { groupByHeaderMinMax: [], subgroupByIssuesVisibility: [] };
   isDragging = false;
+  boardMetadata: TWorkflowBoardMetadata | null = null;
+  collapsedColumns: string[] = readCollapsedColumns();
   // root store
   rootStore;
 
@@ -44,6 +64,8 @@ export class IssueKanBanViewStore implements IIssueKanBanViewStore {
     makeObservable(this, {
       kanBanToggle: observable,
       isDragging: observable.ref,
+      boardMetadata: observable.ref,
+      collapsedColumns: observable,
       // computed
       canUserDragDropVertically: computed,
       canUserDragDropHorizontally: computed,
@@ -51,6 +73,8 @@ export class IssueKanBanViewStore implements IIssueKanBanViewStore {
       // actions
       handleKanBanToggle: action,
       setIsDragging: action.bound,
+      setBoardMetadata: action.bound,
+      toggleCollapsedColumn: action.bound,
     });
 
     this.rootStore = _rootStore;
@@ -77,6 +101,23 @@ export class IssueKanBanViewStore implements IIssueKanBanViewStore {
   get canUserDragDropHorizontally() {
     return false;
   }
+
+  setBoardMetadata = (metadata: TWorkflowBoardMetadata | null) => {
+    this.boardMetadata = metadata;
+  };
+
+  toggleCollapsedColumn = (stateId: string) => {
+    this.collapsedColumns = this.collapsedColumns.includes(stateId)
+      ? this.collapsedColumns.filter((item) => item !== stateId)
+      : [...this.collapsedColumns, stateId];
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(COLLAPSED_COLUMNS_KEY, JSON.stringify(this.collapsedColumns));
+      } catch {
+        // Persistence is best effort; in-memory state still works.
+      }
+    }
+  };
 
   handleKanBanToggle = (toggle: "groupByHeaderMinMax" | "subgroupByIssuesVisibility", value: string) => {
     this.kanBanToggle = {

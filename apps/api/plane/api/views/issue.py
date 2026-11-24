@@ -4,19 +4,21 @@
 
 # Python imports
 import json
+import logging
 import uuid
 import re
 
 # Django imports
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponseRedirect
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
     CharField,
     Exists,
     F,
     Func,
+    IntegerField,
     Max,
     OuterRef,
     Q,
@@ -71,6 +73,7 @@ from plane.db.models import (
     FileAsset,
     IssueComment,
     IssueLink,
+    IssueLabel,
     IssueRelation,
     Label,
     Project,
@@ -79,7 +82,9 @@ from plane.db.models import (
     Workspace,
 )
 from plane.settings.storage import S3Storage
+from plane.utils.permissions.capabilities import get_user_project_role
 from plane.utils.path_validator import sanitize_filename
+from plane.utils.workflow.transition import WORKFLOW_DENIED_FIELD
 from plane.utils.order_queryset import (
     ACTIVITY_ORDER_BY_ALLOWLIST,
     ISSUE_ORDER_BY_ALLOWLIST,
@@ -89,6 +94,9 @@ from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from .base import BaseAPIView
 from plane.utils.host import base_host
 from plane.utils.issue_relation_mapper import get_actual_relation
+from plane.utils.labels import label_issue_count
+
+logger = logging.getLogger("plane.labels")
 from plane.bgtasks.webhook_task import model_activity
 from plane.app.permissions import ROLE
 from plane.utils.openapi import (
@@ -206,6 +214,7 @@ class WorkspaceIssueAPIEndpoint(BaseAPIView):
             .select_related("workspace")
             .select_related("state")
             .select_related("parent")
+            .select_related("type")
             .prefetch_related("assignees")
             .prefetch_related("labels")
             .order_by(self.kwargs.get("order_by", "-created_at"))
@@ -278,6 +287,7 @@ class IssueListCreateAPIEndpoint(BaseAPIView):
             .select_related("workspace")
             .select_related("state")
             .select_related("parent")
+            .select_related("type")
             .prefetch_related("assignees")
             .prefetch_related("labels")
             .order_by(self.kwargs.get("order_by", "-created_at"))
@@ -407,6 +417,18 @@ class IssueListCreateAPIEndpoint(BaseAPIView):
                     output_field=CharField(),
                 )
             ).order_by("state_order")
+        # Work item type ordering, NULLs last.
+        elif order_by_param in ["type__name", "-type__name"]:
+            issue_queryset = issue_queryset.annotate(
+                type_name_is_null=Case(
+                    When(type__name__isnull=True, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            ).order_by(
+                "type_name_is_null",
+                "type__name" if order_by_param == "type__name" else "-type__name",
+            )
         # assignee and label ordering
         elif order_by_param in [
             "labels__name",
@@ -545,6 +567,7 @@ class IssueDetailAPIEndpoint(BaseAPIView):
             .select_related("workspace")
             .select_related("state")
             .select_related("parent")
+            .select_related("type")
             .prefetch_related("assignees")
             .prefetch_related("labels")
             .order_by(self.kwargs.get("order_by", "-created_at"))
@@ -781,7 +804,7 @@ class IssueDetailAPIEndpoint(BaseAPIView):
         serializer = IssueSerializer(
             issue,
             data=request.data,
-            context={"project_id": project_id, "workspace_id": project.workspace_id},
+            context={"project_id": project_id, "workspace_id": project.workspace_id, "user": request.user},
             partial=True,
         )
         if serializer.is_valid():
@@ -923,7 +946,10 @@ class LabelListCreateAPIEndpoint(BaseAPIView):
         Supports external ID tracking for integration purposes.
         """
         try:
-            serializer = LabelCreateUpdateSerializer(data=request.data)
+            serializer = LabelCreateUpdateSerializer(
+                data=request.data,
+                context={"workspace_slug": slug, "project_id": project_id},
+            )
             if serializer.is_valid():
                 if (
                     request.data.get("external_id")
@@ -1061,7 +1087,12 @@ class LabelDetailAPIEndpoint(LabelListCreateAPIEndpoint):
         Validates external ID uniqueness if provided.
         """
         label = self.get_queryset().get(pk=pk)
-        serializer = LabelCreateUpdateSerializer(label, data=request.data, partial=True)
+        serializer = LabelCreateUpdateSerializer(
+            label,
+            data=request.data,
+            partial=True,
+            context={"workspace_slug": slug, "project_id": project_id},
+        )
         if serializer.is_valid():
             if (
                 request.data.get("external_id")
@@ -1100,13 +1131,44 @@ class LabelDetailAPIEndpoint(LabelListCreateAPIEndpoint):
         },
     )
     def delete(self, request, slug, project_id, pk):
-        """Delete label
-
-        Permanently remove a label from the project.
-        This action cannot be undone.
-        """
+        """Delete label, requiring force=true when work items still use it."""
         label = self.get_queryset().get(pk=pk)
-        label.delete()
+        usage_count = label_issue_count(label)
+        force = str(request.query_params.get("force", "false")).lower() == "true"
+        comment = (request.data.get("comment") or request.query_params.get("comment") or "").strip()
+        if usage_count and not force:
+            return Response(
+                {
+                    "error": {
+                        "code": "label_in_use",
+                        "message": "This label is used by work items. Pass force=true to remove those links.",
+                        "details": {"issue_count": usage_count},
+                    }
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if usage_count and force and not comment:
+            return Response(
+                {
+                    "error": {
+                        "code": "comment_required",
+                        "message": "A comment is required when force deleting a label in use.",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            if usage_count:
+                IssueLabel.objects.filter(label=label, deleted_at__isnull=True).delete()
+                logger.info(
+                    "label force delete slug=%s project=%s label=%s removed_links=%s comment=%s",
+                    slug,
+                    project_id,
+                    label.id,
+                    usage_count,
+                    comment,
+                )
+            label.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1730,6 +1792,10 @@ class IssueActivityListAPIEndpoint(BaseAPIView):
             sanitize_order_by(request.GET.get("order_by", "created_at"), ACTIVITY_ORDER_BY_ALLOWLIST, "created_at")
         )
 
+        role = get_user_project_role(request.user, slug, project_id)
+        if not role or role.key != "admin":
+            issue_activities = issue_activities.exclude(field=WORKFLOW_DENIED_FIELD)
+
         return self.paginate(
             request=request,
             queryset=(issue_activities),
@@ -1788,8 +1854,11 @@ class IssueActivityDetailAPIEndpoint(BaseAPIView):
             .order_by(
                 sanitize_order_by(request.GET.get("order_by", "created_at"), ACTIVITY_ORDER_BY_ALLOWLIST, "created_at")
             )
-            .first()
         )
+        role = get_user_project_role(request.user, slug, project_id)
+        if not role or role.key != "admin":
+            issue_activity = issue_activity.exclude(field=WORKFLOW_DENIED_FIELD)
+        issue_activity = issue_activity.first()
 
         if not issue_activity:
             return Response({"message": "Activity not found.", "code": "NOT_FOUND"}, status=status.HTTP_404_NOT_FOUND)

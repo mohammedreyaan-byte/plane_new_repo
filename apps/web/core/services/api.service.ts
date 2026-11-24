@@ -21,6 +21,7 @@ const WORKFLOW_ERROR_CODES = new Set([
   "types_disabled",
   "type_not_enabled",
   "workflow_unavailable",
+  "wip_limit_reached",
 ]);
 
 export abstract class APIService {

@@ -10,6 +10,7 @@ from django.db import IntegrityError
 
 # Third Party imports
 from rest_framework import serializers
+from plane.utils.labels import label_issue_count, validate_label_attrs, validate_label_limit
 from plane.utils.role_compat import CONTRIBUTOR_ROLES
 from plane.utils.workflow.guards import apply_create_rules, apply_update_rules
 
@@ -163,6 +164,7 @@ class IssueCreateSerializer(BaseSerializer):
 
         # Validate labels are from project
         if attrs.get("label_ids"):
+            validate_label_limit(attrs["label_ids"])
             label_ids = [label.id for label in attrs["label_ids"]]
             attrs["label_ids"] = list(
                 Label.objects.filter(
@@ -286,7 +288,7 @@ class IssueCreateSerializer(BaseSerializer):
 
     def update(self, instance, validated_data):
         # Type, hierarchy and workflow transition rules (no-op when types are disabled).
-        validated_data = apply_update_rules(instance, validated_data)
+        validated_data = apply_update_rules(instance, validated_data, user=self.context.get("user"))
 
         assignees = validated_data.pop("assignee_ids", None)
         labels = validated_data.pop("label_ids", None)
@@ -373,6 +375,8 @@ class ProjectUserPropertySerializer(BaseSerializer):
 
 
 class LabelSerializer(BaseSerializer):
+    issue_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Label
         fields = [
@@ -383,21 +387,21 @@ class LabelSerializer(BaseSerializer):
             "project_id",
             "workspace_id",
             "sort_order",
+            "created_at",
+            "issue_count",
         ]
-        read_only_fields = ["workspace", "project"]
+        read_only_fields = ["workspace", "project", "created_at"]
 
-    def validate_name(self, value):
-        project_id = self.context.get("project_id")
+    def get_issue_count(self, obj):
+        return label_issue_count(obj)
 
-        label = Label.objects.filter(project_id=project_id, name__iexact=value)
-
-        if self.instance:
-            label = label.exclude(id=self.instance.pk)
-
-        if label.exists():
-            raise serializers.ValidationError(detail="LABEL_NAME_ALREADY_EXISTS")
-
-        return value
+    def validate(self, attrs):
+        return validate_label_attrs(
+            attrs,
+            instance=self.instance,
+            workspace_id=self.context.get("workspace_id"),
+            project_id=self.context.get("project_id"),
+        )
 
 
 class LabelLiteSerializer(BaseSerializer):
@@ -781,10 +785,20 @@ class IssueIntakeSerializer(DynamicBaseSerializer):
         read_only_fields = fields
 
 
+class IssueTypeLiteSerializer(serializers.ModelSerializer):
+    """Minimal work item type projection used by issue list/detail responses."""
+
+    class Meta:
+        model = IssueType
+        fields = ["id", "key", "name", "logo_props", "is_epic"]
+        read_only_fields = fields
+
+
 class IssueSerializer(DynamicBaseSerializer):
     # ids
     cycle_id = serializers.PrimaryKeyRelatedField(read_only=True)
     module_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    type = IssueTypeLiteSerializer(read_only=True)
 
     # Many to many
     label_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
@@ -802,6 +816,7 @@ class IssueSerializer(DynamicBaseSerializer):
             "name",
             "state_id",
             "type_id",
+            "type",
             "sort_order",
             "completed_at",
             "estimate_point",
@@ -859,6 +874,8 @@ class IssueListDetailSerializer(serializers.Serializer):
             "id": instance.id,
             "name": instance.name,
             "state_id": instance.state_id,
+            "type_id": instance.type_id,
+            "type": IssueTypeLiteSerializer(instance.type).data if instance.type_id else None,
             "sort_order": instance.sort_order,
             "completed_at": instance.completed_at,
             "estimate_point": instance.estimate_point_id,

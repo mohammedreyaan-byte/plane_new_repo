@@ -21,7 +21,7 @@ from rest_framework.response import Response
 # Module imports
 from .base import BaseAPIView
 from plane.app.permissions import ROLE, allow_permission
-from plane.db.models import Issue, IssueType, Project, ProjectIssueType
+from plane.db.models import Issue, IssueType, Module, Project, ProjectIssueType
 from plane.utils.workflow.service import seed_project_workflows
 
 
@@ -148,6 +148,18 @@ class WorkspaceIssueTypeDetailEndpoint(BaseAPIView):
             return _error("not_found", "Work item type not found.", status.HTTP_404_NOT_FOUND)
         if issue_type.is_default:
             return _error("default_type_protected", "The default type cannot be deleted.", status.HTTP_409_CONFLICT)
+
+        # An epic type that modules point at cannot be removed: the module link
+        # is to the epic work item, whose type would otherwise disappear.
+        if issue_type.is_epic:
+            module_links = Module.objects.filter(epic__type=issue_type).count()
+            if module_links:
+                return _error(
+                    "epic_type_in_use",
+                    f"{module_links} module(s) link to epics of this type.",
+                    status.HTTP_409_CONFLICT,
+                    count=module_links,
+                )
 
         issues = Issue.objects.filter(type=issue_type)
         count = issues.count()

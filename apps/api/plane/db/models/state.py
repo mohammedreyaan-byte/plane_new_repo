@@ -113,7 +113,12 @@ class State(ProjectBaseModel):
                 fields=["name", "project"],
                 condition=Q(deleted_at__isnull=True),
                 name="state_unique_name_project_when_deleted_at_null",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=Q(default=True, deleted_at__isnull=True),
+                name="state_unique_default_per_project_when_active",
+            ),
         ]
         verbose_name = "State"
         verbose_name_plural = "States"

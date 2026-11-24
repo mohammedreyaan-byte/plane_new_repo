@@ -7,11 +7,13 @@
 import { useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
+import useSWR from "swr";
 // plane imports
 import { ROLE, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { LinkIcon, TrashIcon, ChevronDownIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
+import type { IRole } from "@plane/types";
 import type { TContextMenuItem } from "@plane/ui";
 import { CustomSelect, CustomMenu } from "@plane/ui";
 import { cn, copyTextToClipboard } from "@plane/utils";
@@ -20,6 +22,19 @@ import { ConfirmWorkspaceMemberRemove } from "@/components/workspace/confirm-wor
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useUserPermissions } from "@/hooks/store/user";
+// services
+import { WorkspaceService } from "@/services/workspace.service";
+
+const workspaceService = new WorkspaceService();
+
+const LEGACY_ROLE_KEYS: Record<number, string> = {
+  20: "admin",
+  15: "member",
+  12: "developer",
+  11: "qa",
+  2: "viewer",
+  5: "guest",
+};
 
 type Props = {
   invitationId: string;
@@ -36,22 +51,48 @@ export const WorkspaceInvitationsListItem = observer(function WorkspaceInvitatio
   // store hooks
   const { allowPermissions, workspaceInfoBySlug } = useUserPermissions();
   const {
-    workspace: { updateMemberInvitation, deleteMemberInvitation, getWorkspaceInvitationDetails },
+    workspace: {
+      updateMemberInvitation,
+      deleteMemberInvitation,
+      resendMemberInvitation,
+      getWorkspaceInvitationDetails,
+    },
   } = useMember();
+  const { data: roles } = useSWR<IRole[]>(
+    workspaceSlug ? `WORKSPACE_ROLES_${workspaceSlug.toString()}` : null,
+    workspaceSlug ? () => workspaceService.fetchWorkspaceRoles(workspaceSlug.toString()) : null
+  );
   // derived values
   const invitationDetails = getWorkspaceInvitationDetails(invitationId);
+  if (!invitationDetails) return null;
   const currentWorkspaceMemberInfo = workspaceInfoBySlug(workspaceSlug.toString());
   const currentWorkspaceRole = currentWorkspaceMemberInfo?.role;
+  const invitedRoleKey =
+    invitationDetails.role_key ?? LEGACY_ROLE_KEYS[Number(invitationDetails.role)] ?? "guest";
+  const invitedRole = roles?.find((role) => role.key === invitedRoleKey);
   // is the current logged in user admin
   const isAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
-  // role change access-
-  // 1. user cannot change their own role
-  // 2. only admin or member can change role
-  // 3. user cannot change role of higher role
-  const hasRoleChangeAccess = allowPermissions(
-    [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
-    EUserPermissionsLevel.WORKSPACE
-  );
+  // Only workspace admins may invite or change invited roles.
+  const hasRoleChangeAccess = isAdmin;
+
+  const handleResendInvitation = async () => {
+    try {
+      if (!workspaceSlug || !invitationDetails) return;
+      await resendMemberInvitation(workspaceSlug.toString(), invitationDetails.id);
+      setToast({
+        type: TOAST_TYPE.SUCCESS,
+        title: "Success!",
+        message: "Invitation resent successfully.",
+      });
+    } catch (err: unknown) {
+      const error = err as { error?: string };
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Error!",
+        message: error?.error || "Something went wrong. Please try again.",
+      });
+    }
+  };
 
   const handleRemoveInvitation = async () => {
     try {
@@ -98,6 +139,13 @@ export const WorkspaceInvitationsListItem = observer(function WorkspaceInvitatio
       shouldRender: !!invitationDetails.invite_link,
     },
     {
+      key: "resend",
+      action: () => void handleResendInvitation(),
+      title: "Resend invitation",
+      icon: LinkIcon,
+      shouldRender: isAdmin,
+    },
+    {
       key: "remove",
       action: () => {
         setRemoveMemberModal(true);
@@ -138,11 +186,12 @@ export const WorkspaceInvitationsListItem = observer(function WorkspaceInvitatio
             customButton={
               <div className="item-center flex gap-1 rounded-sm px-2 py-0.5">
                 <span
+                  title={invitedRole?.description}
                   className={`flex items-center rounded-sm text-caption-sm-medium ${
                     hasRoleChangeAccess ? "" : "text-placeholder"
                   }`}
                 >
-                  {ROLE[invitationDetails.role]}
+                  {invitedRole?.name ?? ROLE[Number(invitationDetails.role) as keyof typeof ROLE] ?? invitedRoleKey}
                 </span>
                 {hasRoleChangeAccess && (
                   <span className="grid place-items-center">
@@ -151,12 +200,12 @@ export const WorkspaceInvitationsListItem = observer(function WorkspaceInvitatio
                 )}
               </div>
             }
-            value={invitationDetails.role}
-            onChange={(value: EUserPermissions) => {
+            value={invitedRoleKey}
+            onChange={(value: string) => {
               if (!workspaceSlug || !value) return;
 
               updateMemberInvitation(workspaceSlug.toString(), invitationDetails.id, {
-                role: value,
+                role_key: value,
               }).catch((err: unknown) => {
                 const error = err as { error?: string };
                 setToast({
@@ -169,17 +218,20 @@ export const WorkspaceInvitationsListItem = observer(function WorkspaceInvitatio
             disabled={!hasRoleChangeAccess}
             placement="bottom-end"
           >
-            {Object.keys(ROLE).map((key) => {
+            {(roles ?? []).map((role) => {
               if (
                 currentWorkspaceRole &&
                 Number(currentWorkspaceRole) !== 20 &&
-                Number(currentWorkspaceRole) < parseInt(key)
+                Number(currentWorkspaceRole) < role.legacy_id
               )
                 return null;
 
               return (
-                <CustomSelect.Option key={key} value={parseInt(key, 10)}>
-                  <>{ROLE[parseInt(key) as keyof typeof ROLE]}</>
+                <CustomSelect.Option key={role.key} value={role.key}>
+                  <span title={role.description}>
+                    <span className="block">{role.name}</span>
+                    {role.description && <span className="block text-tertiary">{role.description}</span>}
+                  </span>
                 </CustomSelect.Option>
               );
             })}

@@ -30,6 +30,7 @@ import {
   IssueAttachmentActivity,
   IssueArchivedAtActivity,
   IssueInboxActivity,
+  IssueWorkflowOverrideActivity,
 } from "./actions";
 
 type TIssueActivityItem = {
@@ -56,6 +57,8 @@ export const IssueActivityItem = observer(function IssueActivityItem(props: TIss
       return <IssueDefaultActivity {...componentDefaultProps} />;
     case "state":
       return <IssueStateActivity {...componentDefaultProps} showIssue={false} />;
+    case "workflow.admin_override":
+      return <IssueWorkflowOverrideActivity {...componentDefaultProps} />;
     case "name":
       return <IssueNameActivity {...componentDefaultProps} />;
     case "description":

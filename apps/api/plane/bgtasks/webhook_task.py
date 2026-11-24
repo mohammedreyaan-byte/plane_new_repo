@@ -38,6 +38,7 @@ from plane.db.models import (
     Cycle,
     CycleIssue,
     Issue,
+    IssueActivity,
     IssueComment,
     Module,
     ModuleIssue,
@@ -88,6 +89,77 @@ def get_issue_prefetches():
         Prefetch("label_issue", queryset=IssueLabel.objects.select_related("label")),
         Prefetch("issue_assignee", queryset=IssueAssignee.objects.select_related("assignee")),
     ]
+
+
+def _context_from_transition_activity(activity) -> Dict[str, Any]:
+    context: Dict[str, Any] = {}
+    if activity is None:
+        return context
+    context["from_state_id"] = str(activity.old_value) if activity.old_value else None
+    try:
+        extra = json.loads(activity.comment or "{}")
+    except (TypeError, ValueError):
+        extra = {}
+    if isinstance(extra, dict):
+        for key in ("workflow_id", "transition_id"):
+            if extra.get(key):
+                context[key] = str(extra[key])
+    return context
+
+
+def _transition_context(issue_id: Union[str, uuid.UUID]) -> Dict[str, Any]:
+    """Read the durable transition activity written by the workflow service."""
+    activity = (
+        IssueActivity.objects.filter(issue_id=issue_id, field="state", verb="transition")
+        .order_by("-created_at")
+        .first()
+    )
+    return _context_from_transition_activity(activity)
+
+
+def _transition_contexts(issue_ids: List[Union[str, uuid.UUID]]) -> Dict[str, Dict[str, Any]]:
+    """Batch the transition lookup so webhook fan-out stays at one query per event."""
+    if not issue_ids:
+        return {}
+    contexts: Dict[str, Dict[str, Any]] = {}
+    activities = (
+        IssueActivity.objects.filter(issue_id__in=issue_ids, field="state", verb="transition")
+        .order_by("issue_id", "-created_at")
+    )
+    for activity in activities:
+        key = str(activity.issue_id)
+        if key not in contexts:
+            contexts[key] = _context_from_transition_activity(activity)
+    return contexts
+
+
+def _issue_event_fields(issue: Issue, transition_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """PLN-004/005/007 additive fields for issue webhook payloads."""
+    if issue is None:
+        return {}
+    issue_type = issue.type if issue.type_id else None
+    fields: Dict[str, Any] = {
+        "type_id": str(issue.type_id) if issue.type_id else None,
+        "type_key": issue_type.key if issue_type else None,
+        "type_name": issue_type.name if issue_type else None,
+        # Nested projection mirrors IssueTypeLiteSerializer. The flat fields above
+        # are kept for existing webhook consumers.
+        "type": {
+            "id": str(issue_type.id),
+            "key": issue_type.key,
+            "name": issue_type.name,
+            "logo_props": issue_type.logo_props,
+            "is_epic": issue_type.is_epic,
+        }
+        if issue_type
+        else None,
+        "state_id": str(issue.state_id) if issue.state_id else None,
+        "state_name": issue.state.name if issue.state_id and issue.state else None,
+    }
+    if transition_context is None:
+        transition_context = _transition_context(issue.id)
+    fields.update(transition_context)
+    return fields
 
 
 def save_webhook_log(
@@ -143,27 +215,45 @@ def get_model_data(event: str, event_id: Union[str, List[str]], many: bool = Fal
         raise ValueError(f"Model not found for event: {event}")
 
     try:
-        if many:
-            queryset = model.objects.filter(pk__in=event_id)
-        else:
-            queryset = model.objects.get(pk=event_id)
-
         serializer = SERIALIZER_MAPPER.get(event)
-
         if serializer is None:
             raise ValueError(f"Serializer not found for event: {event}")
 
-        issue_prefetches = get_issue_prefetches()
         if event == "issue":
+            issue_prefetches = get_issue_prefetches()
             if many:
-                queryset = queryset.prefetch_related(*issue_prefetches)
-            else:
-                issue_id = queryset.id
-                queryset = model.objects.filter(pk=issue_id).prefetch_related(*issue_prefetches).first()
+                issues = list(
+                    model.objects.filter(pk__in=event_id)
+                    .select_related("state", "type")
+                    .prefetch_related(*issue_prefetches)
+                )
+                issues_by_id = {str(issue.id): issue for issue in issues}
+                transition_contexts = _transition_contexts([issue.id for issue in issues])
+                data = serializer(issues, many=True, context={"expand": ["labels", "assignees"]}).data
+                rows = []
+                for row in data:
+                    item = dict(row)
+                    issue_id_str = str(item.get("id"))
+                    item.update(
+                        _issue_event_fields(issues_by_id.get(issue_id_str), transition_contexts.get(issue_id_str, {}))
+                    )
+                    rows.append(item)
+                return rows
 
-            return serializer(queryset, many=many, context={"expand": ["labels", "assignees"]}).data
-        else:
-            return serializer(queryset, many=many).data
+            issue = (
+                model.objects.filter(pk=event_id)
+                .select_related("state", "type")
+                .prefetch_related(*issue_prefetches)
+                .first()
+            )
+            if issue is None:
+                raise ObjectDoesNotExist(f"No {event} found with id: {event_id}")
+            data = dict(serializer(issue, context={"expand": ["labels", "assignees"]}).data)
+            data.update(_issue_event_fields(issue))
+            return data
+
+        queryset = model.objects.get(pk=event_id) if not many else model.objects.filter(pk__in=event_id)
+        return serializer(queryset, many=many).data
     except ObjectDoesNotExist:
         raise ObjectDoesNotExist(f"No {event} found with id: {event_id}")
 

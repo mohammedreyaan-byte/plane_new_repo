@@ -6,7 +6,7 @@
 
 import pytest
 
-from plane.db.models import Issue, IssueType, ProjectIssueType
+from plane.db.models import Issue, IssueType, Module, ProjectIssueType
 from plane.tests.workflow_helpers import (
     DEVELOPER,
     MEMBER,
@@ -357,3 +357,19 @@ def test_issues_can_be_filtered_by_type(workspace, project, admin_client):
 
     rich = admin_client.get(f'{issues(workspace, project)}?filters={{"type_id__in":"{bug_type.id}"}}&per_page=50')
     assert rich.status_code == 200, rich.data
+
+
+@pytest.mark.django_db
+def test_epic_type_linked_from_a_module_cannot_be_deleted(workspace, project, admin_client):
+    epic = make_issue(project, "epic", name="Guarded epic")
+    Module.objects.create(name="Checkout", project=project, workspace=workspace, epic=epic)
+
+    response = admin_client.delete(f"{ws_types(workspace)}{epic.type_id}/")
+    assert response.status_code == 409
+    assert response.data["error"]["code"] == "epic_type_in_use"
+    assert response.data["error"]["count"] == 1
+    assert IssueType.objects.filter(pk=epic.type_id).exists()
+
+    Module.objects.filter(epic=epic).update(epic=None)
+    assert admin_client.delete(f"{ws_types(workspace)}{epic.type_id}/").status_code == 204
+    assert not IssueType.objects.filter(pk=epic.type_id).exists()

@@ -9,6 +9,7 @@ import { AlertCircle } from "lucide-react";
 // plane imports
 import { ISSUE_ORDER_BY_OPTIONS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
+import { LockIcon } from "@plane/propel/icons";
 import type { TIssueOrderByOptions } from "@plane/types";
 // helpers
 import { cn } from "@plane/utils";
@@ -48,20 +49,26 @@ export function GroupDragOverlay(props: Props) {
   return (
     <div
       ref={messageContainerRef}
+      role={workflowDisabledSource && isDropDisabled ? "status" : undefined}
+      aria-live={workflowDisabledSource && isDropDisabled ? "polite" : undefined}
       className={cn(
         `absolute top-0 left-0 h-full w-full items-center rounded-sm bg-layer-1/85 text-13 font-medium text-tertiary ${dragColumnOrientation}`,
         {
           "z-2 flex flex-col border-[1px] border-strong": shouldOverlayBeVisible,
-          "bg-danger-subtle": workflowDisabledSource && isDropDisabled,
+          "border-danger-secondary border-dashed bg-danger-subtle text-danger-secondary":
+            workflowDisabledSource && isDropDisabled,
         },
         { hidden: !shouldOverlayBeVisible }
       )}
     >
       {workflowDisabledSource && isDropDisabled ? (
-        <div className="my-8 flex flex-col items-center rounded-sm p-3 text-danger-secondary">
+        <div
+          className="my-8 flex flex-col items-center rounded-sm p-3 text-danger-secondary"
+          title="This state change is not allowed for your role."
+        >
           <div className="flex items-center">
-            <AlertCircle width={13} height={13} /> &nbsp;
-            <span>Your role cannot move work items from {workflowDisabledSource} to this state.</span>
+            <LockIcon width={13} height={13} aria-hidden="true" /> &nbsp;
+            <span>Not allowed: your role cannot move work items from {workflowDisabledSource} to this state.</span>
           </div>
         </div>
       ) : workflowDisabledSource ? null : (

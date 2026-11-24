@@ -213,7 +213,7 @@ def test_project_without_types_enabled_keeps_free_state_changes(workspace, creat
     seed_project_workflows(project)  # rows exist but the project has not enabled types
     developer = make_user(workspace, project, DEVELOPER)
     issue = make_issue(project, "bug", "In Testing")
-    assert validate_transition(issue, state_of(project, "Closed"), developer) is None
+    assert validate_transition(issue, state_of(project, "Closed"), developer) == (None, False)
 
 
 @pytest.mark.django_db

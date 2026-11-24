@@ -84,6 +84,22 @@ export class WorkspaceService extends APIService {
       });
   }
 
+  async bulkInviteWorkspace(
+    workspaceSlug: string,
+    data: { emails: Array<{ email: string; role_key: string }> }
+  ): Promise<{
+    results: Array<{ email: string; status: string; member_id: string | null; error?: string }>;
+    invited: number;
+    updated: number;
+    failed: number;
+  }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/invitations/bulk/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async joinWorkspace(workspaceSlug: string, invitationId: string, data: any): Promise<any> {
     return this.post(`/api/workspaces/${workspaceSlug}/invitations/${invitationId}/join/`, data, {
       headers: {},
@@ -200,6 +216,14 @@ export class WorkspaceService extends APIService {
 
   async deleteWorkspaceInvitations(workspaceSlug: string, invitationId: string): Promise<any> {
     return this.delete(`/api/workspaces/${workspaceSlug}/invitations/${invitationId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async resendWorkspaceInvitation(workspaceSlug: string, invitationId: string): Promise<{ message: string }> {
+    return this.post(`/api/workspaces/${workspaceSlug}/invitations/${invitationId}/resend/`, {})
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

@@ -177,7 +177,16 @@ class WorkspaceMemberAdminSerializer(DynamicBaseSerializer):
 
 class WorkSpaceMemberInviteSerializer(BaseSerializer):
     workspace = WorkspaceLiteSerializer(read_only=True)
+    role_ref = RoleLiteSerializer(read_only=True)
+    role_key = serializers.SerializerMethodField()
     invite_link = serializers.SerializerMethodField()
+
+    def get_role_key(self, obj):
+        from plane.utils.permissions.capabilities import LEGACY_ID_TO_KEY
+
+        if obj.role_ref_id and obj.role_ref:
+            return obj.role_ref.key
+        return LEGACY_ID_TO_KEY.get(obj.role)
 
     def get_invite_link(self, obj):
         return f"/workspace-invitations/?invitation_id={obj.id}&slug={obj.workspace.slug}&token={obj.token}"
@@ -195,6 +204,8 @@ class WorkSpaceMemberInviteSerializer(BaseSerializer):
             "created_at",
             "updated_at",
             "invite_link",
+            "role_key",
+            "role_ref",
         ]
 
 
@@ -207,6 +218,15 @@ class WorkSpaceMemberInvitePublicSerializer(BaseSerializer):
     """
 
     workspace = WorkspaceLiteSerializer(read_only=True)
+    role_ref = RoleLiteSerializer(read_only=True)
+    role_key = serializers.SerializerMethodField()
+
+    def get_role_key(self, obj):
+        from plane.utils.permissions.capabilities import LEGACY_ID_TO_KEY
+
+        if obj.role_ref_id and obj.role_ref:
+            return obj.role_ref.key
+        return LEGACY_ID_TO_KEY.get(obj.role)
 
     class Meta:
         model = WorkspaceMemberInvite
@@ -215,6 +235,8 @@ class WorkSpaceMemberInvitePublicSerializer(BaseSerializer):
             "email",
             "workspace",
             "role",
+            "role_key",
+            "role_ref",
             "message",
             "accepted",
             "responded_at",

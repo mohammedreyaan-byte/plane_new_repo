@@ -10,14 +10,16 @@ enabled work item types are not affected at all (``is_issue_type_enabled`` is Fa
 """
 
 from crum import get_current_user
+from django.utils import timezone
 
-from plane.db.models import Issue, Project, WorkflowState
+from plane.db.models import Issue, IssueActivity, Project, WorkflowState
 from plane.utils.issue_types import get_default_issue_type, is_type_enabled_in_project
 from plane.utils.workflow.transition import (
     WorkflowError,
     get_workflow_for_issue,
     project_is_governed,
-    validate_transition,
+    reset_issue_state,
+    transition_issue,
 )
 
 # child type key -> parent type keys that are not allowed for it
@@ -95,6 +97,7 @@ def apply_update_rules(issue, validated_data, user=None):
     """Type, hierarchy and workflow rules for an update. Mutates and returns the dict."""
     user = user or _actor()
     types_on = _types_enabled(issue.project_id)
+    type_change = None
 
     if "type" in validated_data:
         new_type = validated_data["type"]
@@ -111,6 +114,7 @@ def apply_update_rules(issue, validated_data, user=None):
                     "type_not_enabled", f"'{new_type.name}' is not enabled in this project.", type_id=str(new_type.id)
                 )
             check_parent_type(validated_data.get("parent", issue.parent), new_type)
+            type_change = {"old": issue.type, "new": new_type, "reset_to": None}
 
             # Moving to a type with another workflow: reset the state when the current one is not in it.
             if new_type is not None and project_is_governed(issue.project_id):
@@ -124,13 +128,40 @@ def apply_update_rules(issue, validated_data, user=None):
                     if current is None or current.id not in in_workflow:
                         initial = _initial_state(issue.project_id, new_type)
                         if initial is not None:
-                            validated_data["state"] = initial
-                            # System reset on a type change: not a user transition.
-                            return validated_data
+                            # System reset on a type change: not a user transition. The
+                            # dedicated service locks the row and writes the durable
+                            # activity row, so the serializer must not write state again.
+                            reset_issue_state(issue.id, initial.id, user=user, reason="type_change", source="api")
+                            type_change["reset_to"] = initial
+                            issue.refresh_from_db(fields=["state_id"])
+                            validated_data.pop("state", None)
     elif "parent" in validated_data:
         check_parent_type(validated_data["parent"], issue.type)
 
     new_state = validated_data.get("state")
     if new_state is not None and new_state.id != issue.state_id and user is not None:
-        validate_transition(issue, new_state, user)
+        # The service is the only writer of Issue.state. Pop the field so the serializer
+        # cannot write it a second time, then sync the in-memory instance from the committed row.
+        transition_issue(issue.id, new_state.id, user, source="api")
+        validated_data.pop("state", None)
+        issue.refresh_from_db(fields=["state_id"])
+
+    if type_change is not None:
+        old_name = type_change["old"].name if type_change["old"] else "no type"
+        new_name = type_change["new"].name if type_change["new"] else "no type"
+        message = f"Type changed from {old_name} to {new_name}"
+        if type_change["reset_to"] is not None:
+            message += f"; state reset to {type_change['reset_to'].name}"
+        IssueActivity.objects.create(
+            issue=issue,
+            project_id=issue.project_id,
+            workspace_id=issue.workspace_id,
+            actor=user,
+            verb="updated",
+            field="type",
+            old_value=str(issue.type_id) if issue.type_id else None,
+            new_value=str(type_change["new"].id) if type_change["new"] else None,
+            comment=message,
+            epoch=timezone.now().timestamp(),
+        )
     return validated_data

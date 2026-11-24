@@ -216,7 +216,7 @@ class WorkspaceViewIssuesViewSet(BaseViewSet):
         )
 
     def get_queryset(self):
-        return Issue.issue_objects.filter(workspace__slug=self.kwargs.get("slug"))
+        return Issue.issue_objects.filter(workspace__slug=self.kwargs.get("slug")).select_related("type")
 
     @method_decorator(gzip_page)
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")

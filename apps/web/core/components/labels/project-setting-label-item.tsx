@@ -7,7 +7,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { EditIcon, CloseIcon } from "@plane/propel/icons";
+import { EditIcon, CloseIcon, CopyIcon } from "@plane/propel/icons";
 // types
 import type { IIssueLabel } from "@plane/types";
 // hooks
@@ -34,6 +34,7 @@ type Props = {
   ) => void;
   labelOperationsCallbacks: TLabelOperationsCallbacks;
   isEditable?: boolean;
+  onMergeDuplicates?: (label: IIssueLabel) => void;
 };
 
 export function ProjectSettingLabelItem(props: Props) {
@@ -47,6 +48,7 @@ export function ProjectSettingLabelItem(props: Props) {
     onDrop,
     labelOperationsCallbacks,
     isEditable = false,
+    onMergeDuplicates,
   } = props;
   // states
   const [isEditLabelForm, setEditLabelForm] = useState(false);
@@ -55,10 +57,10 @@ export function ProjectSettingLabelItem(props: Props) {
   // store hooks
   const { updateLabel } = useLabel();
 
-  const removeFromGroup = (label: IIssueLabel) => {
+  const removeFromGroup = (item: IIssueLabel) => {
     if (!workspaceSlug || !projectId) return;
 
-    updateLabel(workspaceSlug.toString(), projectId.toString(), label.id, {
+    updateLabel(workspaceSlug.toString(), projectId.toString(), item.id, {
       parent: null,
     });
   };
@@ -80,6 +82,13 @@ export function ProjectSettingLabelItem(props: Props) {
       isVisible: true,
       text: "Edit label",
       key: "edit_label",
+    },
+    {
+      CustomIcon: CopyIcon,
+      onClick: (item) => onMergeDuplicates?.(item),
+      isVisible: !!onMergeDuplicates,
+      text: "Merge duplicates",
+      key: "merge_duplicates",
     },
   ];
 
@@ -114,6 +123,7 @@ export function ProjectSettingLabelItem(props: Props) {
                 handleLabelDelete={handleLabelDelete}
                 dragHandleRef={dragHandleRef}
                 disabled={!isEditable}
+                showUsageCount
               />
             )}
           </div>

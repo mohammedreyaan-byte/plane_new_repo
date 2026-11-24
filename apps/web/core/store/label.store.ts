@@ -12,6 +12,7 @@ import type { IIssueLabel, IIssueLabelTree } from "@plane/types";
 // helpers
 import { buildTree } from "@plane/utils";
 // services
+import type { TLabelMergePreview } from "@/services/issue";
 import { IssueLabelService } from "@/services/issue";
 // store
 import type { CoreRootStore } from "./root.store";
@@ -51,6 +52,11 @@ export interface ILabelStore {
     dropAtEndOfList: boolean
   ) => Promise<void>;
   deleteLabel: (workspaceSlug: string, projectId: string, labelId: string) => Promise<void>;
+  mergeProjectLabels: (
+    workspaceSlug: string,
+    projectId: string,
+    data: { target_id: string; source_ids: string[]; preview?: boolean }
+  ) => Promise<TLabelMergePreview>;
 }
 
 export class LabelStore implements ILabelStore {
@@ -76,6 +82,7 @@ export class LabelStore implements ILabelStore {
       updateLabel: action,
       updateLabelPosition: action,
       deleteLabel: action,
+      mergeProjectLabels: action,
     });
 
     // root store
@@ -305,5 +312,24 @@ export class LabelStore implements ILabelStore {
         delete this.labelMap[labelId];
       });
     });
+  };
+
+  /**
+   * Preview or apply a duplicate-label merge. Applying refreshes both the project
+   * and workspace label caches because labels are workspace scoped.
+   */
+  mergeProjectLabels = async (
+    workspaceSlug: string,
+    projectId: string,
+    data: { target_id: string; source_ids: string[]; preview?: boolean }
+  ) => {
+    const result = await this.issueLabelService.mergeIssueLabels(workspaceSlug, projectId, data);
+    if (!data.preview) {
+      await Promise.all([
+        this.fetchProjectLabels(workspaceSlug, projectId),
+        this.fetchWorkspaceLabels(workspaceSlug).catch(() => []),
+      ]);
+    }
+    return result;
   };
 }

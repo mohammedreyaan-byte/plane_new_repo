@@ -12,7 +12,6 @@ import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { SearchIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { IWorkspaceBulkInviteFormData } from "@plane/types";
 import { cn } from "@plane/utils";
 // components
 import { NotAuthorizedView } from "@/components/auth-screens/not-authorized-view";
@@ -21,7 +20,7 @@ import { PageHead } from "@/components/core/page-title";
 import { MemberListFiltersDropdown } from "@/components/project/dropdowns/filters/member-list";
 import { WorkspaceMembersList } from "@/components/workspace/settings/members-list";
 import { SettingsContentWrapper } from "@/components/settings/content-wrapper";
-import { SendWorkspaceInvitationModal } from "@/components/workspace/members";
+import { BulkInviteModal } from "@/components/workspace/members/bulk-invite-modal";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -39,7 +38,7 @@ const WorkspaceMembersSettingsPage = observer(function WorkspaceMembersSettingsP
   // store hooks
   const { workspaceUserInfo, allowPermissions } = useUserPermissions();
   const {
-    workspace: { workspaceMemberIds, inviteMembersToWorkspace, filtersStore },
+    workspace: { workspaceMemberIds, fetchWorkspaceMemberInvitations, filtersStore },
   } = useMember();
   const { currentWorkspace } = useWorkspace();
   const { t } = useTranslation();
@@ -51,31 +50,13 @@ const WorkspaceMembersSettingsPage = observer(function WorkspaceMembersSettingsP
     EUserPermissionsLevel.WORKSPACE
   );
 
-  const handleWorkspaceInvite = async (data: IWorkspaceBulkInviteFormData) => {
-    try {
-      await inviteMembersToWorkspace(workspaceSlug, data);
-
-      setInviteModal(false);
-
-      setToast({
-        type: TOAST_TYPE.SUCCESS,
-        title: "Success!",
-        message: t("workspace_settings.settings.members.invitations_sent_successfully"),
-      });
-    } catch (error: unknown) {
-      let message = undefined;
-      if (error instanceof Error) {
-        const err = error as Error & { error?: string };
-        message = err.error;
-      }
-      setToast({
-        type: TOAST_TYPE.ERROR,
-        title: "Error!",
-        message: `${message ?? t("something_went_wrong_please_try_again")}`,
-      });
-
-      throw error;
-    }
+  const refreshInvitations = async () => {
+    await fetchWorkspaceMemberInvitations(workspaceSlug);
+    setToast({
+      type: TOAST_TYPE.SUCCESS,
+      title: "Invitations processed",
+      message: "Review the per-address results before closing this dialog.",
+    });
   };
 
   // Handler for role filter updates
@@ -101,10 +82,11 @@ const WorkspaceMembersSettingsPage = observer(function WorkspaceMembersSettingsP
   return (
     <SettingsContentWrapper header={<MembersWorkspaceSettingsHeader />} hugging>
       <PageHead title={pageTitle} />
-      <SendWorkspaceInvitationModal
+      <BulkInviteModal
+        workspaceSlug={workspaceSlug}
         isOpen={inviteModal}
         onClose={() => setInviteModal(false)}
-        onSubmit={handleWorkspaceInvite}
+        onInvited={refreshInvitations}
       />
       <section
         className={cn("size-full", {

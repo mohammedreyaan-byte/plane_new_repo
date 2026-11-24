@@ -11,16 +11,18 @@ import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { IState, TStateGroups, TStateOperationsCallbacks } from "@plane/types";
 // components
 import { StateForm } from "@/components/project-states";
+import type { TStateWorkflowOption } from "./form";
 
 type TStateCreate = {
   groupKey: TStateGroups;
   shouldTrackEvents?: boolean;
   createStateCallback: TStateOperationsCallbacks["createState"];
   handleClose: () => void;
+  workflows?: TStateWorkflowOption[];
 };
 
 export const StateCreate = observer(function StateCreate(props: TStateCreate) {
-  const { groupKey, createStateCallback, handleClose } = props;
+  const { groupKey, createStateCallback, handleClose, workflows } = props;
 
   // states
   const [loader, setLoader] = useState(false);
@@ -70,6 +72,7 @@ export const StateCreate = observer(function StateCreate(props: TStateCreate) {
       onCancel={onCancel}
       buttonDisabled={loader}
       buttonTitle={loader ? `Creating` : `Create`}
+      workflows={workflows}
     />
   );
 });

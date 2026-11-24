@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 # Module imports
 from .base import DynamicBaseSerializer
+from .issue import IssueTypeLiteSerializer
 from plane.db.models import IssueView
 from plane.utils.issue_filters import issue_filters
 
@@ -26,6 +27,8 @@ class ViewIssueListSerializer(serializers.Serializer):
             "id": instance.id,
             "name": instance.name,
             "state_id": instance.state_id,
+            "type_id": instance.type_id,
+            "type": IssueTypeLiteSerializer(instance.type).data if instance.type_id else None,
             "sort_order": instance.sort_order,
             "completed_at": instance.completed_at,
             "estimate_point": instance.estimate_point_id,

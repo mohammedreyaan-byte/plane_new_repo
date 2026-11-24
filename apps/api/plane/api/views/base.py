@@ -66,6 +66,22 @@ class BaseAPIView(TimezoneMixin, GenericAPIView, ReadReplicaControlMixin, BasePa
         Handle any exception that occurs, by returning an appropriate response,
         or re-raising the error.
         """
+        # Preserve the stable PLN-013 workflow error contract, including numeric
+        # and boolean detail values, instead of DRF's stringified ErrorDetails.
+        from plane.utils.workflow.transition import WorkflowError
+
+        if isinstance(exc, WorkflowError) and getattr(exc, "detail", None):
+            return Response(
+                {
+                    "error": {
+                        "code": exc.code,
+                        "message": exc.message,
+                        "details": getattr(exc, "error_details", {}),
+                    }
+                },
+                status=exc.status_code,
+            )
+
         try:
             response = super().handle_exception(exc)
             return response
@@ -172,6 +188,22 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
         Handle any exception that occurs, by returning an appropriate response,
         or re-raising the error.
         """
+        # Preserve the stable PLN-013 workflow error contract, including numeric
+        # and boolean detail values, instead of DRF's stringified ErrorDetails.
+        from plane.utils.workflow.transition import WorkflowError
+
+        if isinstance(exc, WorkflowError) and getattr(exc, "detail", None):
+            return Response(
+                {
+                    "error": {
+                        "code": exc.code,
+                        "message": exc.message,
+                        "details": getattr(exc, "error_details", {}),
+                    }
+                },
+                status=exc.status_code,
+            )
+
         try:
             response = super().handle_exception(exc)
             return response

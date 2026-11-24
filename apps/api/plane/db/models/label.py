@@ -11,7 +11,7 @@ from .workspace import WorkspaceBaseModel
 class Label(WorkspaceBaseModel):
     parent = models.ForeignKey(
         "self",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="parent_label",

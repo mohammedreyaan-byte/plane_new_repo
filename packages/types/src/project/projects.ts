@@ -31,6 +31,8 @@ export interface IPartialProject {
   page_view: boolean;
   inbox_view: boolean;
   guest_view_all_features?: boolean;
+  /** When true, moving work into a state at its WIP limit is rejected. */
+  board_wip_hard_limit?: boolean;
   reports_enabled?: boolean;
   reports_nav_visible?: boolean;
   project_lead?: IUserLite | string | null;

@@ -33,6 +33,7 @@ import { MemberDropdown } from "@/components/dropdowns/member/dropdown";
 import { ModuleDropdown } from "@/components/dropdowns/module/dropdown";
 import { PriorityDropdown } from "@/components/dropdowns/priority";
 import { StateDropdown } from "@/components/dropdowns/state/dropdown";
+import { WorkItemTypeBadge } from "@/components/work-item-types/type-badge";
 // hooks
 import { useProjectEstimates } from "@/hooks/store/estimates";
 import { useIssues } from "@/hooks/store/use-issues";
@@ -212,6 +213,13 @@ export const IssueProperties = observer(function IssueProperties(props: IIssuePr
             renderByDefault={isMobile}
             showTooltip
           />
+        </div>
+      </WithDisplayPropertiesHOC>
+
+      {/* type */}
+      <WithDisplayPropertiesHOC displayProperties={displayProperties} displayPropertyKey="issue_type">
+        <div className="h-5" onFocus={handleEventPropagation} onClick={handleEventPropagation}>
+          <WorkItemTypeBadge projectId={issue.project_id} typeId={issue.type_id} />
         </div>
       </WithDisplayPropertiesHOC>
 

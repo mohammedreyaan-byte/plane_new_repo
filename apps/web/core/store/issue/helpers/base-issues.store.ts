@@ -125,6 +125,7 @@ export const ISSUE_GROUP_BY_KEY: Record<TIssueDisplayFilterOptions, keyof TIssue
   cycle: "cycle_id",
   module: "module_ids",
   team_project: "project_id",
+  type: "type_id",
 };
 
 export const ISSUE_FILTER_DEFAULT_DATA: Record<TIssueDisplayFilterOptions, keyof TIssue> = {
@@ -139,6 +140,7 @@ export const ISSUE_FILTER_DEFAULT_DATA: Record<TIssueDisplayFilterOptions, keyof
   assignees: "assignee_ids",
   target_date: "target_date",
   team_project: "project_id",
+  type: "type_id",
 };
 
 // This constant maps the order by keys to the respective issue property that the key relies on
@@ -152,6 +154,8 @@ const ISSUE_ORDERBY_KEY: Record<TIssueOrderByOptions, keyof TIssue> = {
   sort_order: "sort_order",
   state__name: "state_id",
   "-state__name": "state_id",
+  type__name: "type_id",
+  "-type__name": "type_id",
   assignees__first_name: "assignee_ids",
   "-assignees__first_name": "assignee_ids",
   labels__name: "label_ids",
@@ -469,6 +473,9 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
     // Process the Issue Response to get the following data from it
     const { issueList, groupedIssues, groupedIssueCount } = this.processIssueResponse(issuesResponse);
 
+    // Workflow board columns/limits are additive; legacy responses carry null.
+    this.rootIssueStore.issueKanBanView.setBoardMetadata(issuesResponse.extra_stats ?? null);
+
     // The Issue list is added to the main Issue Map
     this.rootIssueStore.issues.addIssue(issueList);
 
@@ -499,6 +506,8 @@ export abstract class BaseIssuesStore implements IBaseIssuesStore {
   onfetchNexIssues(issuesResponse: TIssuesResponse, groupId?: string, subGroupId?: string) {
     // Process the Issue Response to get the following data from it
     const { issueList, groupedIssues, groupedIssueCount } = this.processIssueResponse(issuesResponse);
+
+    this.rootIssueStore.issueKanBanView.setBoardMetadata(issuesResponse.extra_stats ?? null);
 
     // The Issue list is added to the main Issue Map
     this.rootIssueStore.issues.addIssue(issueList);

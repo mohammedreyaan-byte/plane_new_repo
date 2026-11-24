@@ -10,6 +10,16 @@ import type { IIssueLabel } from "@plane/types";
 import { APIService } from "@/services/api.service";
 // types
 
+export type TLabelMergePreview = {
+  target: { id: string; name: string; color: string; issue_count: number };
+  sources: { id: string; name: string; issue_count: number }[];
+  affected_issue_count: number;
+  affected_issue_ids: string[];
+  merged: boolean;
+  skipped?: string[];
+  reason?: string;
+};
+
 export class IssueLabelService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -49,6 +59,18 @@ export class IssueLabelService extends APIService {
 
   async deleteIssueLabel(workspaceSlug: string, projectId: string, labelId: string): Promise<any> {
     return this.delete(`/api/workspaces/${workspaceSlug}/projects/${projectId}/issue-labels/${labelId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async mergeIssueLabels(
+    workspaceSlug: string,
+    projectId: string,
+    data: { target_id: string; source_ids: string[]; preview?: boolean }
+  ): Promise<TLabelMergePreview> {
+    return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/issue-labels/merge/`, data)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

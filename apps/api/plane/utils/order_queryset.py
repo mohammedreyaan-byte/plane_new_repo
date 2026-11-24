@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-from django.db.models import Case, CharField, Min, Value, When
+from django.db.models import Case, CharField, IntegerField, Min, Value, When
 
 # Custom ordering for priority and state
 PRIORITY_ORDER = ["urgent", "high", "medium", "low", "none"]
@@ -28,6 +28,7 @@ ISSUE_ORDER_BY_ALLOWLIST = frozenset({
     "priority",
     "state__name",
     "state__group",
+    "type__name",
     "assignees__first_name",
     "labels__name",
     "issue_module__module__name",
@@ -86,6 +87,7 @@ NOTIFICATION_ORDER_BY_ALLOWLIST = frozenset({
 ISSUE_GROUP_BY_ALLOWLIST = frozenset({
     "state_id",
     "state__group",
+    "type_id",
     "priority",
     "labels__id",
     "assignees__id",
@@ -152,10 +154,16 @@ def order_issue_queryset(issue_queryset, order_by_param="-created_at"):
         issue_queryset = issue_queryset.annotate(
             priority_order=Case(
                 *[When(priority=p, then=Value(i)) for i, p in enumerate(PRIORITY_ORDER)],
-                output_field=CharField(),
+                default=Value(len(PRIORITY_ORDER)),
+                output_field=IntegerField(),
             )
-        ).order_by("priority_order", "-created_at")
-        order_by_param = "priority_order" if order_by_param.startswith("-") else "-priority_order"
+        )
+        # PRIORITY_ORDER is already urgent -> none. A plain sort follows it;
+        # -priority reverses it (none -> urgent).
+        issue_queryset = issue_queryset.order_by(
+            "-priority_order" if order_by_param.startswith("-") else "priority_order",
+            "-created_at",
+        )
     # State Ordering
     elif order_by_param in ["state__group", "-state__group"]:
         state_order = STATE_ORDER if order_by_param in ["state__name", "state__group"] else STATE_ORDER[::-1]
@@ -167,6 +175,20 @@ def order_issue_queryset(issue_queryset, order_by_param="-created_at"):
             )
         ).order_by("state_order", "-created_at")
         order_by_param = "-state_order" if order_by_param.startswith("-") else "state_order"
+    # Work item type ordering. NULL types are sorted last in both directions;
+    # the paginator repeats the same field with F(... nulls_last=True).
+    elif order_by_param in ["type__name", "-type__name"]:
+        issue_queryset = issue_queryset.annotate(
+            type_name_is_null=Case(
+                When(type__name__isnull=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        ).order_by(
+            "type_name_is_null",
+            "type__name" if order_by_param == "type__name" else "-type__name",
+            "-created_at",
+        )
     # assignee and label ordering
     elif order_by_param in [
         "labels__name",

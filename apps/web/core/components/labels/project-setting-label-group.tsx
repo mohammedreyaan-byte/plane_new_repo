@@ -9,7 +9,7 @@ import { useState } from "react";
 import { observer } from "mobx-react";
 import { Disclosure, Transition } from "@headlessui/react";
 // plane imports
-import { EditIcon, TrashIcon, ChevronDownIcon } from "@plane/propel/icons";
+import { EditIcon, TrashIcon, ChevronDownIcon, CopyIcon } from "@plane/propel/icons";
 import type { IIssueLabel } from "@plane/types";
 // components
 import type { TLabelOperationsCallbacks } from "./create-update-label-inline";
@@ -34,6 +34,7 @@ type Props = {
   ) => void;
   labelOperationsCallbacks: TLabelOperationsCallbacks;
   isEditable?: boolean;
+  onMergeDuplicates?: (label: IIssueLabel) => void;
 };
 
 export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGroup(props: Props) {
@@ -47,6 +48,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
     onDrop,
     isEditable = false,
     labelOperationsCallbacks,
+    onMergeDuplicates,
   } = props;
 
   // states
@@ -71,6 +73,13 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
       isVisible: true,
       text: "Delete label",
       key: "delete_label",
+    },
+    {
+      CustomIcon: CopyIcon,
+      onClick: (item) => onMergeDuplicates?.(item),
+      isVisible: !!onMergeDuplicates,
+      text: "Merge duplicates",
+      key: "merge_duplicates",
     },
   ];
 
@@ -112,6 +121,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
                           handleLabelDelete={handleLabelDelete}
                           isLabelGroup
                           dragHandleRef={dragHandleRef}
+                          showUsageCount
                         />
                       )}
 
@@ -147,6 +157,7 @@ export const ProjectSettingLabelGroup = observer(function ProjectSettingLabelGro
                                   onDrop={onDrop}
                                   isEditable={isEditable}
                                   labelOperationsCallbacks={labelOperationsCallbacks}
+                                  onMergeDuplicates={onMergeDuplicates}
                                 />
                               </div>
                             </div>

@@ -31,6 +31,11 @@ VALID_ANALYTICS_FIELDS = [
     "issue_cycle__cycle_id",
     "issue_module__module_id",
     "priority",
+    # Work item type dimensions. ``type`` is an alias for ``type_id`` so the
+    # analytics API can use either spelling without touching the query params
+    # that already use ``type`` for state groups.
+    "type_id",
+    "type",
     "start_date",
     "target_date",
     "created_at",
@@ -38,6 +43,12 @@ VALID_ANALYTICS_FIELDS = [
 ]
 
 VALID_YAXIS = ["issue_count", "estimate"]
+
+# Null types are shown as a real dimension so work items created before types
+# were enabled are still represented in type breakdowns.
+TYPE_DIMENSION_FIELDS = {"type_id", "type"}
+TYPE_NULL_KEY = "none"
+TYPE_NULL_NAME = "No type"
 
 
 def annotate_with_monthly_dimension(queryset, field_name, attribute):

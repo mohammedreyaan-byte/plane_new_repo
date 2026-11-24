@@ -282,6 +282,10 @@ export const coreRoutes: RouteConfigEntry[] = [
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/members/page.tsx"
           ),
           route(
+            ":workspaceSlug/settings/work-item-types",
+            "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/work-item-types/page.tsx"
+          ),
+          route(
             ":workspaceSlug/settings/billing",
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/billing/page.tsx"
           ),

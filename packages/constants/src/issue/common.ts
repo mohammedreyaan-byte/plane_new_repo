@@ -29,6 +29,7 @@ export enum EIssueGroupByToServerOptions {
   "priority" = "priority",
   "labels" = "labels__id",
   "state_detail.group" = "state__group",
+  "type" = "type_id",
   "assignees" = "assignees__id",
   "cycle" = "cycle_id",
   "module" = "issue_module__module_id",
@@ -41,6 +42,7 @@ export enum EIssueGroupByToServerOptions {
 
 export enum EIssueGroupBYServerToProperty {
   "state_id" = "state_id",
+  "type_id" = "type_id",
   "priority" = "priority",
   "labels__id" = "label_ids",
   "state__group" = "state__group",
@@ -93,6 +95,7 @@ export const ISSUE_PRIORITIES: {
 export const DRAG_ALLOWED_GROUPS: TIssueGroupByOptions[] = [
   "state",
   "priority",
+  "type",
   "assignees",
   "labels",
   "module",
@@ -116,6 +119,7 @@ export const ISSUE_GROUP_BY_OPTIONS: {
 }[] = [
   { key: "state", titleTranslationKey: "common.states" },
   { key: "state_detail.group", titleTranslationKey: "common.state_groups" },
+  { key: "type", titleTranslationKey: "common.type" },
   { key: "priority", titleTranslationKey: "common.priority" },
   { key: "team_project", titleTranslationKey: "common.team_project" }, // required this on team issues
   { key: "project", titleTranslationKey: "common.project" }, // required this on my issues
@@ -137,6 +141,8 @@ export const ISSUE_ORDER_BY_OPTIONS: {
   { key: "start_date", titleTranslationKey: "common.order_by.start_date" },
   { key: "target_date", titleTranslationKey: "common.order_by.due_date" },
   { key: "-priority", titleTranslationKey: "common.priority" },
+  { key: "type__name", titleTranslationKey: "common.type" },
+  { key: "-type__name", titleTranslationKey: "common.type" },
 ];
 
 export const ISSUE_DISPLAY_PROPERTIES_KEYS: (keyof IIssueDisplayProperties)[] = [
@@ -193,6 +199,7 @@ export const ISSUE_DISPLAY_PROPERTIES: {
     titleTranslationKey: "common.priority",
   },
   { key: "state", titleTranslationKey: "common.state" },
+  { key: "issue_type", titleTranslationKey: "common.type" },
   {
     key: "sub_issue_count",
     titleTranslationKey: "issue.display.properties.sub_issue_count",

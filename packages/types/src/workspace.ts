@@ -49,6 +49,8 @@ export interface IWorkspaceMemberInvitation {
   message: string;
   responded_at: Date;
   role: TUserPermissions;
+  role_key?: string;
+  role_ref?: IRole;
   token: string;
   invite_link: string;
   workspace: {

@@ -10,6 +10,7 @@ from the role reference when one is present.
 """
 
 from functools import wraps
+from uuid import UUID, uuid4
 
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
@@ -142,12 +143,29 @@ def get_role_capabilities(role, workspace=None):
     return set(LEGACY_CAPABILITIES.get(legacy_id, []))
 
 
+def _workspace_id(workspace):
+    """Accept a Workspace instance, a UUID, or a workspace slug."""
+    if workspace is None:
+        return None
+    if hasattr(workspace, "id"):
+        return workspace.id
+    try:
+        return UUID(str(workspace))
+    except (TypeError, ValueError):
+        # Unresolved slug: use a non-matching UUID so every lookup stays empty
+        # instead of raising a UUID ValidationError.
+        return (
+            Workspace.objects.filter(slug=str(workspace)).values_list("id", flat=True).first()
+            or uuid4()
+        )
+
+
 def get_user_workspace_role(user, workspace):
     """Return the effective workspace Role for a user, or None."""
     if not user or not user.is_authenticated:
         return None
 
-    workspace_id = getattr(workspace, "id", workspace)
+    workspace_id = _workspace_id(workspace)
     membership = (
         WorkspaceMember.objects.filter(
             workspace_id=workspace_id,
@@ -172,7 +190,7 @@ def get_user_project_role(user, workspace, project):
     if not user or not user.is_authenticated:
         return None
 
-    workspace_id = getattr(workspace, "id", workspace)
+    workspace_id = _workspace_id(workspace)
     workspace_role = get_user_workspace_role(user, workspace_id)
     if workspace_role and workspace_role.key == "admin":
         return workspace_role

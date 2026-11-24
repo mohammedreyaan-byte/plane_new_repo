@@ -25,11 +25,14 @@ export const useAllowedTransitions = (
   const slug = workspaceSlug?.toString();
   const { isEnabled } = useProjectWorkItemTypes(projectId);
   const shouldFetch = Boolean(enabled && isEnabled && slug && projectId && issueId);
-  const { data, isLoading } = useSWR(
+  const { data, isLoading, mutate } = useSWR(
     shouldFetch ? `ALLOWED_TRANSITIONS_${issueId}_${currentStateId}` : null,
     shouldFetch ? () => workItemTypesService.getAllowedTransitions(slug!, projectId!, issueId!) : null,
-    { revalidateOnFocus: false, dedupingInterval: 0 }
+    { revalidateOnFocus: true, dedupingInterval: 0 }
   );
   const transitions: TAllowedTransition[] | null = data && data.workflow_id ? data.transitions : null;
-  return { transitions, isLoading };
+  // Denied entries are returned only for admins. They are exposed here so the
+  // menu can render them as disabled options instead of hiding them by accident.
+  const denied: TAllowedTransition[] = data && data.workflow_id ? (data.denied ?? []) : [];
+  return { transitions, denied, isLoading, refetch: mutate };
 };

@@ -5,3 +5,6 @@ export * from "./settings-types";
 export * from "./settings-workflows";
 export * from "./module-epic-select";
 export * from "./epic-modules-panel";
+export * from "./workspace-settings";
+export * from "./type-icon-picker";
+export * from "./delete-type-modal";

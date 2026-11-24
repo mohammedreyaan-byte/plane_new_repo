@@ -16,12 +16,14 @@ from plane.app.views import (
     IssueArchiveViewSet,
     IssueCommentViewSet,
     IssueListEndpoint,
+    IssueBoardReorderEndpoint,
     IssueReactionViewSet,
     IssueRelationViewSet,
     IssueSubscriberViewSet,
     ProjectUserDisplayPropertyEndpoint,
     IssueViewSet,
     LabelViewSet,
+    LabelMergeEndpoint,
     BulkArchiveIssuesEndpoint,
     DeletedIssuesListViewSet,
     IssuePaginatedViewSet,
@@ -50,6 +52,11 @@ urlpatterns = [
         IssueDetailEndpoint.as_view(),
         name="project-issue-detail",
     ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/board/reorder/",
+        IssueBoardReorderEndpoint.as_view(),
+        name="project-board-reorder",
+    ),
     # updated v1 paginated issues
     # updated v2 paginated issues
     path(
@@ -73,6 +80,11 @@ urlpatterns = [
         "workspaces/<str:slug>/projects/<uuid:project_id>/issue-labels/",
         LabelViewSet.as_view({"get": "list", "post": "create"}),
         name="project-issue-labels",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/issue-labels/merge/",
+        LabelMergeEndpoint.as_view(),
+        name="project-issue-labels-merge",
     ),
     path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/issue-labels/<uuid:pk>/",

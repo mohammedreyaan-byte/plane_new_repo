@@ -123,6 +123,32 @@ export type TIssueResponseResults =
       };
     };
 
+export type TWorkflowBoardColumn = {
+  state_id: string;
+  name: string | null;
+  group: string | null;
+  color: string | null;
+  sequence: number;
+  wip_limit: number | null;
+  count: number;
+  is_initial: boolean;
+  is_final: boolean;
+};
+
+export type TWorkflowBoardMetadata = {
+  health: "ok" | "no_workflow";
+  columns: TWorkflowBoardColumn[];
+  workflow: { id: string; name: string; type_id: string | null } | null;
+  swimlanes: {
+    type_id: string | null;
+    type_name: string;
+    workflow: { id: string; name: string; type_id: string | null } | null;
+    columns: TWorkflowBoardColumn[];
+  }[];
+  type_id: string | null;
+  board_wip_hard_limit: boolean;
+};
+
 export type TIssuesResponse = {
   grouped_by: string;
   next_cursor: string;
@@ -132,7 +158,7 @@ export type TIssuesResponse = {
   total_count: number;
   count: number;
   total_pages: number;
-  extra_stats: null;
+  extra_stats: TWorkflowBoardMetadata | null;
   results: TIssueResponseResults;
   total_results: number;
 };

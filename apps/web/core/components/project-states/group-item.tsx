@@ -15,6 +15,7 @@ import type { IState, TStateGroups, TStateOperationsCallbacks } from "@plane/typ
 import { cn } from "@plane/utils";
 // components
 import { StateList, StateCreate } from "@/components/project-states";
+import type { TStateWorkflowOption } from "./create-update/form";
 
 type TGroupItem = {
   groupKey: TStateGroups;
@@ -28,6 +29,7 @@ type TGroupItem = {
   stateItemClassName?: string;
   handleGroupCollapse: (groupKey: TStateGroups) => void;
   handleExpand: (groupKey: TStateGroups) => void;
+  workflows?: TStateWorkflowOption[];
 };
 
 export const GroupItem = observer(function GroupItem(props: TGroupItem) {
@@ -43,6 +45,7 @@ export const GroupItem = observer(function GroupItem(props: TGroupItem) {
     stateItemClassName,
     handleExpand,
     handleGroupCollapse,
+    workflows,
   } = props;
   // refs
   const dropElementRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +130,7 @@ export const GroupItem = observer(function GroupItem(props: TGroupItem) {
             handleClose={() => setCreateState(false)}
             createStateCallback={stateOperationsCallbacks.createState}
             shouldTrackEvents={shouldTrackEvents}
+            workflows={workflows}
           />
         </div>
       )}

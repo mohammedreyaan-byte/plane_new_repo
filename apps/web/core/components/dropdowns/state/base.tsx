@@ -29,6 +29,10 @@ export type TWorkItemStateDropdownBaseProps = TDropdownProps & {
   alwaysAllowStateChange?: boolean;
   /** Moves the current user may make on this work item; null/undefined means no workflow restriction. */
   allowedTransitions?: TAllowedTransition[] | null;
+  /** Moves the API refused for this user. Only populated for admins. */
+  deniedTransitions?: TAllowedTransition[] | null;
+  /** Admins see denied targets disabled with a reason; other users never see them. */
+  isAdmin?: boolean;
   /** Work item this dropdown edits. Needed to apply workflow rules. */
   issueId?: string;
   button?: ReactNode;
@@ -87,12 +91,19 @@ export const WorkItemStateDropdownBase = observer(function WorkItemStateDropdown
   const [isOpen, setIsOpen] = useState(false);
   // store hooks
   const { t } = useTranslation();
-  const allowedStateIds = props.allowedTransitions ? new Set(props.allowedTransitions.map((tr) => tr.to_state_id)) : null;
+  const allowedStateIds = props.allowedTransitions
+    ? new Set(props.allowedTransitions.map((tr) => tr.to_state_id))
+    : null;
+  const deniedByStateId = new Map(
+    (props.isAdmin ? (props.deniedTransitions ?? []) : []).map((tr) => [tr.to_state_id, tr])
+  );
+  const visibleStateIds = allowedStateIds ? new Set([...allowedStateIds, ...deniedByStateId.keys()]) : null;
   const statesList = stateIds
     .map((stateId) => getStateById(stateId))
     .filter((state) => !!state)
-    // Workflow rules: show the current state and the states this user may move to.
-    .filter((state) => !allowedStateIds || state.id === value || allowedStateIds.has(state.id));
+    // Workflow rules: show the current state, allowed targets and (for admins only)
+    // denied targets so they can inspect why a move is blocked.
+    .filter((state) => !visibleStateIds || state.id === value || visibleStateIds.has(state.id));
   const defaultState = statesList?.find((state) => state?.default);
   const stateValue = value ? value : showDefaultState ? defaultState?.id : undefined;
   // popper-js init
@@ -120,21 +131,26 @@ export const WorkItemStateDropdownBase = observer(function WorkItemStateDropdown
   });
 
   // derived values
-  const options = statesList?.map((state) => ({
-    value: state?.id,
-    query: `${state?.name}`,
-    content: (
-      <div className="flex items-center gap-2">
-        <StateGroupIcon
-          stateGroup={state?.group ?? "backlog"}
-          color={state?.color}
-          className={cn("flex-shrink-0", iconSize)}
-          percentage={state?.order}
-        />
-        <span className="flex-grow truncate text-left">{state?.name}</span>
-      </div>
-    ),
-  }));
+  const options = statesList?.map((state) => {
+    const denied = state?.id ? deniedByStateId.get(state.id) : undefined;
+    return {
+      value: state?.id,
+      query: `${state?.name}`,
+      disabled: !!denied,
+      disabledReason: denied?.reason ?? undefined,
+      content: (
+        <div className="flex items-center gap-2">
+          <StateGroupIcon
+            stateGroup={state?.group ?? "backlog"}
+            color={state?.color}
+            className={cn("flex-shrink-0", iconSize)}
+            percentage={state?.order}
+          />
+          <span className="flex-grow truncate text-left">{state?.name}</span>
+        </div>
+      ),
+    };
+  });
 
   const filteredOptions =
     query === "" ? options : options?.filter((o) => o.query.toLowerCase().includes(query.toLowerCase()));

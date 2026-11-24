@@ -25,6 +25,7 @@ export interface IWorkspaceMembership {
   id: string;
   member: string;
   role: EUserPermissions;
+  role_key?: string;
   is_active?: boolean;
 }
 
@@ -59,6 +60,7 @@ export interface IWorkspaceMemberStore {
     data: Partial<IWorkspaceMemberInvitation>
   ) => Promise<void>;
   deleteMemberInvitation: (workspaceSlug: string, invitationId: string) => Promise<void>;
+  resendMemberInvitation: (workspaceSlug: string, invitationId: string) => Promise<void>;
   isUserSuspended: (userId: string, workspaceSlug: string) => boolean;
 }
 
@@ -93,6 +95,7 @@ export class WorkspaceMemberStore implements IWorkspaceMemberStore {
       fetchWorkspaceMemberInvitations: action,
       updateMemberInvitation: action,
       deleteMemberInvitation: action,
+      resendMemberInvitation: action,
     });
     // initialize filters store
     this.filtersStore = new WorkspaceMemberFiltersStore();
@@ -185,9 +188,15 @@ export class WorkspaceMemberStore implements IWorkspaceMemberStore {
     if (!workspaceSlug) return null;
     const workspaceMemberInvitationIds = this.workspaceMemberInvitationIds;
     if (!workspaceMemberInvitationIds) return null;
+    const { roles: roleFilters, status } = this.filtersStore.filters;
     const searchedWorkspaceMemberInvitationIds = workspaceMemberInvitationIds.filter((invitationId) => {
       const invitationDetails = this.getWorkspaceInvitationDetails(invitationId);
       if (!invitationDetails) return false;
+      if (status === "active" || status === "suspended") return false;
+      if (roleFilters && roleFilters.length > 0) {
+        const roleValues = [invitationDetails.role_key ?? "", String(invitationDetails.role)];
+        if (!roleFilters.some((role) => roleValues.includes(role))) return false;
+      }
       const invitationSearchQuery = `${invitationDetails.email}`;
       return invitationSearchQuery.toLowerCase()?.includes(searchQuery.toLowerCase());
     });
@@ -207,6 +216,7 @@ export class WorkspaceMemberStore implements IWorkspaceMemberStore {
     const memberDetails: IWorkspaceMember = {
       id: workspaceMember.id,
       role: workspaceMember.role,
+      role_key: workspaceMember.role_key,
       member: this.memberRoot?.memberMap?.[workspaceMember.member],
       is_active: workspaceMember.is_active,
     };
@@ -241,6 +251,7 @@ export class WorkspaceMemberStore implements IWorkspaceMemberStore {
             id: member.id,
             member: member.member.id,
             role: member.role,
+            role_key: member.role_key,
             is_active: member.is_active,
           });
         });
@@ -357,6 +368,10 @@ export class WorkspaceMemberStore implements IWorkspaceMemberStore {
         );
       });
     });
+
+  resendMemberInvitation = async (workspaceSlug: string, invitationId: string): Promise<void> => {
+    await this.workspaceService.resendWorkspaceInvitation(workspaceSlug, invitationId);
+  };
 
   isUserSuspended = computedFn((userId: string, workspaceSlug: string) => {
     if (!workspaceSlug) return false;

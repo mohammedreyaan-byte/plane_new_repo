@@ -19,7 +19,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 # Module imports
-from plane.app.permissions import WorkSpaceAdminPermission
+from plane.app.permissions import ROLE, WorkSpaceAdminPermission, allow_permission
 from plane.app.serializers import (
     WorkSpaceMemberInviteSerializer,
     WorkSpaceMemberInvitePublicSerializer,
@@ -28,15 +28,63 @@ from plane.app.serializers import (
 from plane.app.views.base import BaseAPIView
 from plane.bgtasks.event_tracking_task import track_event
 from plane.bgtasks.workspace_invitation_task import workspace_invitation
-from plane.db.models import User, Workspace, WorkspaceMember, WorkspaceMemberInvite
+from plane.db.models import RoleAuditLog, User, Workspace, WorkspaceMember, WorkspaceMemberInvite
 from plane.utils.cache import invalidate_cache, invalidate_cache_directly
 from plane.utils.host import base_host
 from plane.utils.analytics_events import USER_JOINED_WORKSPACE, USER_INVITED_TO_WORKSPACE
 from plane.utils.permissions.capabilities import (
+    KEY_TO_LEGACY_ID,
     LEGACY_ID_TO_KEY,
     resolve_role_for_invite,
+    role_key_for_membership,
 )
 from .. import BaseViewSet
+
+
+def _resolve_invite_role(workspace, role_key=None, legacy_role=None):
+    """Resolve an invitation role without silently falling back to Guest.
+
+    Returns ``(role, error)``. ``error`` is a response body for the single
+    invite endpoint; callers that report per-email results can turn it into a
+    human readable string.
+    """
+    if role_key is None and legacy_role is None:
+        return resolve_role_for_invite(workspace, role_key="guest"), None
+
+    key = str(role_key).strip().lower() if role_key is not None else None
+    legacy_id = None
+    if legacy_role is not None:
+        try:
+            legacy_id = int(legacy_role)
+        except (TypeError, ValueError):
+            return None, {"error": "role must be an integer", "code": "invalid_role"}
+
+    if key is not None:
+        expected_legacy_id = KEY_TO_LEGACY_ID.get(key)
+        if expected_legacy_id is None:
+            return None, {"role_key": ["Invalid role."]}
+        if legacy_id is not None and legacy_id != expected_legacy_id:
+            return None, {
+                "error": "role and role_key refer to different roles",
+                "code": "role_key_conflict",
+            }
+    else:
+        key = LEGACY_ID_TO_KEY.get(legacy_id)
+        if key is None:
+            return None, {"role_key": ["Invalid role."]}
+
+    role = resolve_role_for_invite(workspace, role_key=key)
+    if role is None:
+        return None, {"role_key": ["Invalid role."]}
+    return role, None
+
+
+def _invite_role_error_message(error):
+    if isinstance(error, dict):
+        if "role_key" in error:
+            return "Invalid workspace role"
+        return error.get("error") or "Invalid workspace role"
+    return str(error)
 
 
 class WorkspaceInvitationsViewset(BaseViewSet):
@@ -52,9 +100,10 @@ class WorkspaceInvitationsViewset(BaseViewSet):
             super()
             .get_queryset()
             .filter(workspace__slug=self.kwargs.get("slug"))
-            .select_related("workspace", "workspace__owner", "created_by")
+            .select_related("workspace", "workspace__owner", "created_by", "role_ref")
         )
 
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
     def create(self, request, slug):
         emails = request.data.get("emails", [])
         # Check if email is provided
@@ -71,21 +120,13 @@ class WorkspaceInvitationsViewset(BaseViewSet):
         # cannot drift apart.
         resolved_emails = []
         for email in emails:
-            role_key = email.get("role_key")
-            legacy_role = email.get("role")
-            role = resolve_role_for_invite(workspace, role_key=role_key, legacy_id=legacy_role)
-            if role is None:
-                role = resolve_role_for_invite(workspace, role_key="guest")
+            role, error = _resolve_invite_role(workspace, email.get("role_key"), email.get("role"))
+            if error is not None:
+                return Response(error, status=status.HTTP_400_BAD_REQUEST)
             resolved_emails.append((email, role))
 
         # Check if any invited user has an higher role
-        if len(
-            [
-                email
-                for email, role in resolved_emails
-                if (role.legacy_id if role else int(email.get("role", 5))) > requesting_user.role
-            ]
-        ):
+        if any(role.legacy_id > requesting_user.role for _, role in resolved_emails):
             return Response(
                 {"error": "You cannot invite a user with higher role"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -164,10 +205,96 @@ class WorkspaceInvitationsViewset(BaseViewSet):
 
         return Response({"message": "Emails sent successfully"}, status=status.HTTP_200_OK)
 
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
     def destroy(self, request, slug, pk):
         workspace_member_invite = WorkspaceMemberInvite.objects.get(pk=pk, workspace__slug=slug)
         workspace_member_invite.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
+    @invalidate_cache(
+        path="/api/workspaces/:slug/members/",
+        url_params=True,
+        user=False,
+        multiple=True,
+    )
+    def partial_update(self, request, slug, pk):
+        """Change the role attached to a pending invitation."""
+        invitation = WorkspaceMemberInvite.objects.select_related("workspace", "role_ref").filter(
+            pk=pk, workspace__slug=slug
+        ).first()
+        if invitation is None:
+            return Response({"error": "Invitation not found"}, status=status.HTTP_404_NOT_FOUND)
+        if invitation.responded_at is not None:
+            return Response(
+                {"error": "The invitation has already been answered"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        role, error = _resolve_invite_role(invitation.workspace, request.data.get("role_key"), request.data.get("role"))
+        if error is not None:
+            return Response(error, status=status.HTTP_400_BAD_REQUEST)
+
+        requesting_member = WorkspaceMember.objects.get(workspace__slug=slug, member=request.user, is_active=True)
+        if role.legacy_id > requesting_member.role:
+            return Response(
+                {"error": "You cannot invite a user with higher role"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        old_role_key = role_key_for_membership(invitation)
+        invitation.role = role.legacy_id
+        invitation.role_ref = role
+        invitation.save(update_fields=["role", "role_ref", "updated_at"])
+
+        if old_role_key != role.key:
+            target_id = User.objects.filter(email=invitation.email).values_list("id", flat=True).first()
+            RoleAuditLog.objects.create(
+                workspace=invitation.workspace,
+                actor=request.user,
+                target_id=target_id,
+                old_role=old_role_key or "",
+                new_role=role.key,
+            )
+
+        return Response(WorkSpaceMemberInviteSerializer(invitation).data, status=status.HTTP_200_OK)
+
+
+class WorkspaceInvitationResendEndpoint(BaseAPIView):
+    """Resend an existing pending invitation without creating a second system."""
+
+    permission_classes = [WorkSpaceAdminPermission]
+
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
+    def post(self, request, slug, pk):
+        invitation = WorkspaceMemberInvite.objects.select_related("workspace").filter(
+            pk=pk, workspace__slug=slug
+        ).first()
+        if invitation is None:
+            return Response({"error": "Invitation not found"}, status=status.HTTP_404_NOT_FOUND)
+        if invitation.responded_at is not None:
+            return Response(
+                {"error": "The invitation has already been answered"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        invitation.token = jwt.encode(
+            {"email": invitation.email, "timestamp": datetime.now().timestamp()},
+            settings.SECRET_KEY,
+            algorithm="HS256",
+        )
+        invitation.save(update_fields=["token", "updated_at"])
+        workspace_invitation.delay(
+            invitation.email,
+            invitation.workspace_id,
+            invitation.token,
+            base_host(request=request, is_app=True),
+            request.user.email,
+        )
+        return Response(
+            {"message": "Invitation resent", "invitation_id": str(invitation.id)},
+            status=status.HTTP_200_OK,
+        )
 
 
 class WorkspaceBulkInviteEndpoint(BaseAPIView):
@@ -180,6 +307,7 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
 
     permission_classes = [WorkSpaceAdminPermission]
 
+    @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
     @invalidate_cache(
         path="/api/workspaces/:slug/members/",
         url_params=True,
@@ -199,6 +327,8 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
         invited = 0
         updated = 0
         failed = 0
+        seen_emails = set()
+        member_ids_by_email = {}
 
         for raw_entry in entries:
             entry = {"email": raw_entry} if isinstance(raw_entry, str) else dict(raw_entry)
@@ -206,31 +336,80 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
 
             if not email:
                 failed += 1
-                results.append({"email": "", "status": "failed", "error": "Email is required"})
+                results.append(
+                    {"email": "", "status": "invalid", "member_id": None, "error": "Email is required"}
+                )
                 continue
 
             try:
                 validate_email(email)
             except ValidationError:
                 failed += 1
-                results.append({"email": email, "status": "failed", "error": "Invalid email address"})
+                results.append(
+                    {
+                        "email": email,
+                        "status": "invalid",
+                        "member_id": None,
+                        "error": "Invalid email address",
+                    }
+                )
                 continue
 
-            if WorkspaceMember.objects.filter(workspace=workspace, member__email=email, is_active=True).exists():
+            if email in seen_emails:
                 failed += 1
-                results.append({"email": email, "status": "failed", "error": "Already a workspace member"})
+                results.append(
+                    {
+                        "email": email,
+                        "status": "already_member",
+                        "member_id": member_ids_by_email.get(email),
+                        "error": "Duplicate address in this list",
+                    }
+                )
+                continue
+            seen_emails.add(email)
+
+            existing_member = (
+                WorkspaceMember.objects.filter(workspace=workspace, member__email=email, is_active=True)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if existing_member is not None:
+                failed += 1
+                member_ids_by_email[email] = str(existing_member)
+                results.append(
+                    {
+                        "email": email,
+                        "status": "already_member",
+                        "member_id": str(existing_member),
+                        "error": "Already a workspace member",
+                    }
+                )
                 continue
 
-            role = resolve_role_for_invite(
-                workspace,
-                role_key=entry.get("role_key"),
-                legacy_id=entry.get("role"),
-            ) or resolve_role_for_invite(workspace, role_key="guest")
-            legacy_role = role.legacy_id if role else 5
+            role, error = _resolve_invite_role(workspace, entry.get("role_key"), entry.get("role"))
+            if error is not None:
+                failed += 1
+                results.append(
+                    {
+                        "email": email,
+                        "status": "invalid",
+                        "member_id": None,
+                        "error": _invite_role_error_message(error),
+                    }
+                )
+                continue
+            legacy_role = role.legacy_id
 
             if legacy_role > requesting_user.role:
                 failed += 1
-                results.append({"email": email, "status": "failed", "error": "Role is higher than your own"})
+                results.append(
+                    {
+                        "email": email,
+                        "status": "invalid",
+                        "member_id": None,
+                        "error": "Role is higher than your own",
+                    }
+                )
                 continue
 
             existing_invite = WorkspaceMemberInvite.objects.filter(
@@ -242,7 +421,7 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
                 existing_invite.role_ref = role
                 existing_invite.save()
                 invitation = existing_invite
-                outcome = "updated"
+                outcome = "invited"
                 updated += 1
             else:
                 invitation = WorkspaceMemberInvite.objects.create(
@@ -281,10 +460,13 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
                 },
             )
 
+            member_ids_by_email[email] = str(invitation.id)
             results.append(
                 {
                     "email": email,
                     "status": outcome,
+                    "member_id": str(invitation.id),
+                    "updated": outcome == "invited" and existing_invite is not None,
                     "role": legacy_role,
                     "role_key": role.key if role else LEGACY_ID_TO_KEY.get(legacy_role),
                 }

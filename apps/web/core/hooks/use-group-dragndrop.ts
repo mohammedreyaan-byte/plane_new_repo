@@ -9,10 +9,13 @@ import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import type { EIssuesStoreType, TIssue, TIssueGroupByOptions, TIssueOrderByOptions } from "@plane/types";
 import type { GroupDropLocation } from "@/components/issues/issue-layouts/utils";
 import { handleGroupDragDrop } from "@/components/issues/issue-layouts/utils";
+import { IssueService } from "@/services/issue/issue.service";
 import { ISSUE_FILTER_DEFAULT_DATA } from "@/store/issue/helpers/base-issues.store";
 import { useIssueDetail } from "./store/use-issue-detail";
 import { useIssues } from "./store/use-issues";
 import { useIssuesActions } from "./use-issues-actions";
+
+const boardIssueService = new IssueService();
 
 type DNDStoreType =
   | EIssuesStoreType.PROJECT
@@ -105,6 +108,42 @@ export const useGroupIssuesDragNDrop = (
       destination.id === source.id
     )
       return;
+
+    // Same-column, state-grouped boards use the explicit reorder endpoint so
+    // ordering is persisted without touching Issue.state.
+    const sourceIssue = source.id ? getIssueById(source.id) : undefined;
+    if (
+      workspaceSlug &&
+      groupBy === "state" &&
+      source.groupId === destination.groupId &&
+      (!subGroupBy || source.subGroupId === destination.subGroupId) &&
+      destination.groupId &&
+      destination.groupId !== "None" &&
+      sourceIssue?.project_id
+    ) {
+      const issueIds = getIssueIds(destination.groupId, destination.subGroupId) ?? [];
+      const targetIndex = destination.id ? issueIds.indexOf(destination.id) : issueIds.length - 1;
+      const beforeId = targetIndex > 0 ? issueIds[targetIndex - 1] : null;
+      const afterId = targetIndex >= 0 && targetIndex < issueIds.length ? issueIds[targetIndex] : null;
+      try {
+        await boardIssueService.reorderBoardItems(workspaceSlug.toString(), sourceIssue.project_id, [
+          {
+            issue_id: source.id!,
+            state_id: destination.groupId,
+            before_id: beforeId,
+            after_id: afterId,
+          },
+        ]);
+        return;
+      } catch (error) {
+        setToast({
+          title: "Error!",
+          type: TOAST_TYPE.ERROR,
+          message: (error as { message?: string })?.message ?? "Failed to reorder work item",
+        });
+        return;
+      }
+    }
 
     await handleGroupDragDrop(
       source,

@@ -12,6 +12,7 @@ from django.db.models.functions import Coalesce
 from plane.db.models import (
     Cycle,
     Issue,
+    IssueType,
     Label,
     Module,
     Project,
@@ -139,7 +140,27 @@ def issue_on_results(
         original_list.append(sub_group_by)
 
     required_fields.extend(original_list)
-    return list(issues.values(*required_fields))
+    results = list(issues.values(*required_fields))
+
+    # Include the work item type projection in the same query budget: one lookup
+    # for all distinct types on the page, never one query per card/row.
+    type_ids = {row["type_id"] for row in results if row.get("type_id")}
+    types_by_id = {}
+    if type_ids:
+        types_by_id = {
+            str(issue_type.id): {
+                "id": str(issue_type.id),
+                "key": issue_type.key,
+                "name": issue_type.name,
+                "logo_props": issue_type.logo_props,
+                "is_epic": issue_type.is_epic,
+            }
+            for issue_type in IssueType.objects.filter(id__in=type_ids)
+        }
+    for row in results:
+        row["type"] = types_by_id.get(str(row.get("type_id"))) if row.get("type_id") else None
+
+    return results
 
 
 def issue_group_values(
@@ -193,6 +214,20 @@ def issue_group_values(
 
     if field == "state__group":
         return ["backlog", "unstarted", "started", "completed", "cancelled"]
+
+    if field == "type_id":
+        type_queryset = IssueType.objects.filter(
+            workspace__slug=slug,
+            is_active=True,
+            deleted_at__isnull=True,
+        )
+        if project_id:
+            type_queryset = type_queryset.filter(
+                project_issue_types__project_id=project_id,
+                project_issue_types__is_enabled=True,
+                project_issue_types__deleted_at__isnull=True,
+            )
+        return list(type_queryset.values_list("id", flat=True).distinct()) + ["none"]
 
     if field == "target_date":
         queryset = queryset.values_list("target_date", flat=True).distinct()

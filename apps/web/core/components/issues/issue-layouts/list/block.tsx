@@ -234,7 +234,10 @@ export const IssueBlock = observer(function IssueBlock(props: IssueBlockProps) {
                 </Tooltip>
               )}
               {displayProperties && (displayProperties.key || displayProperties.issue_type) && (
-                <div className="flex-shrink-0" style={{ minWidth: `${keyMinWidth}px` }}>
+                <div
+                  className="flex flex-shrink-0 items-center gap-1.5"
+                  style={{ minWidth: `${keyMinWidth}px` }}
+                >
                   {issue.project_id && (
                     <IssueIdentifier
                       issueId={issueId}

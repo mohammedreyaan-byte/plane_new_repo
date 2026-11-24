@@ -7,9 +7,12 @@ import uuid
 from datetime import timedelta
 
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 # The date from pattern
 pattern = re.compile(r"\d+_(weeks|months)$")
+
+MAX_TYPE_FILTER_VALUES = 20
 
 
 # check the valid uuids
@@ -94,16 +97,50 @@ def filter_state(params, issue_filter, method, prefix=""):
 
 
 def filter_work_item_type(params, issue_filter, method, prefix=""):
-    """Filter by work item type. The query param is ``issue_type`` because ``type`` already means active/backlog."""
+    """Filter by work item type. The query param is ``issue_type`` because ``type`` already means active/backlog.
+
+    Invalid UUIDs are rejected with a field error, matching ``type_id``.
+    """
+    return _filter_by_type_id(params, issue_filter, method, prefix, "issue_type")
+
+
+def _type_filter_values(params, key, method):
+    raw = params.get(key)
+    if raw is None:
+        return []
     if method == "GET":
-        types = [item for item in params.get("issue_type").split(",") if item != "null"]
-        types = filter_valid_uuids(types)
-        if len(types) and "" not in types:
-            issue_filter[f"{prefix}type_id__in"] = types
+        values = [item for item in str(raw).split(",") if item and item != "null"]
+    elif isinstance(raw, (list, tuple)):
+        values = [item for item in raw if item and item != "null"]
     else:
-        if params.get("issue_type", None) and len(params.get("issue_type")) and params.get("issue_type") != "null":
-            issue_filter[f"{prefix}type_id__in"] = params.get("issue_type")
+        values = [item for item in [raw] if item and item != "null"]
+    return values
+
+
+def _filter_by_type_id(params, issue_filter, method, prefix, key):
+    values = _type_filter_values(params, key, method)
+    if not values:
+        return issue_filter
+    if len(values) > MAX_TYPE_FILTER_VALUES:
+        raise ValidationError({key: f"At most {MAX_TYPE_FILTER_VALUES} work item types are allowed."})
+    parsed = []
+    for value in values:
+        try:
+            parsed.append(uuid.UUID(str(value)))
+        except (ValueError, TypeError, AttributeError):
+            raise ValidationError({key: "Enter a valid UUID."})
+    issue_filter[f"{prefix}type_id__in"] = parsed
     return issue_filter
+
+
+def filter_type_id(params, issue_filter, method, prefix=""):
+    """Strict single/multi UUID filter using the new ``type_id`` parameter."""
+    return _filter_by_type_id(params, issue_filter, method, prefix, "type_id")
+
+
+def filter_type_id_in(params, issue_filter, method, prefix=""):
+    """Strict CSV/list filter using the new ``type_id__in`` parameter."""
+    return _filter_by_type_id(params, issue_filter, method, prefix, "type_id__in")
 
 
 def filter_state_group(params, issue_filter, method, prefix=""):
@@ -445,6 +482,8 @@ def issue_filters(query_params, method, prefix=""):
         "state": filter_state,
         "state_group": filter_state_group,
         "issue_type": filter_work_item_type,
+        "type_id": filter_type_id,
+        "type_id__in": filter_type_id_in,
         "estimate_point": filter_estimate_point,
         "priority": filter_priority,
         "parent": filter_parent,

@@ -10,11 +10,13 @@ import json
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import (
     Count,
     Exists,
     F,
     Func,
+    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -73,6 +75,7 @@ from plane.utils.issue_filters import issue_filters
 from plane.utils.order_queryset import order_issue_queryset
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
 from plane.utils.timezone_converter import user_timezone_converter
+from plane.utils.workflow.board import build_board_metadata
 
 from .. import BaseAPIView, BaseViewSet
 
@@ -115,7 +118,7 @@ class IssueListEndpoint(BaseAPIView):
 
         # Add select_related, prefetch_related if fields or expand is not None
         if self.fields or self.expand:
-            issue_queryset = issue_queryset.select_related("workspace", "project", "state", "parent").prefetch_related(
+            issue_queryset = issue_queryset.select_related("workspace", "project", "state", "parent", "type").prefetch_related(
                 "assignees", "labels", "issue_module__module"
             )
 
@@ -206,6 +209,81 @@ class IssueListEndpoint(BaseAPIView):
         return Response(issues, status=status.HTTP_200_OK)
 
 
+class IssueBoardReorderEndpoint(BaseAPIView):
+    """Within-column ordering for workflow boards (PLN-009).
+
+    This endpoint only writes ``Issue.sort_order``. Cross-column moves still go
+    through PATCH ``state_id``, which reaches the workflow transition engine.
+    """
+
+    MAX_ITEMS = 200
+
+    @staticmethod
+    def _neighbor(issue_id, state_id, project_id, slug):
+        if not issue_id:
+            return None
+        return Issue.issue_objects.filter(
+            pk=issue_id, project_id=project_id, workspace__slug=slug, state_id=state_id
+        ).first()
+
+    @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
+    def post(self, request, slug, project_id):
+        payload = request.data if isinstance(request.data, dict) else {}
+        items = payload.get("items")
+        if items is None:
+            items = [payload]
+        if not isinstance(items, list) or not items:
+            return Response({"error": "items must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(items) > self.MAX_ITEMS:
+            return Response(
+                {"error": f"At most {self.MAX_ITEMS} items can be reordered at once."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = []
+        with transaction.atomic():
+            for item in items:
+                if not isinstance(item, dict) or not item.get("issue_id") or not item.get("state_id"):
+                    return Response(
+                        {"error": "Each item needs issue_id and state_id."}, status=status.HTTP_400_BAD_REQUEST
+                    )
+                issue = Issue.issue_objects.filter(
+                    pk=item["issue_id"], project_id=project_id, workspace__slug=slug
+                ).first()
+                if issue is None:
+                    return Response({"error": "Work item not found."}, status=status.HTTP_404_NOT_FOUND)
+                if str(issue.state_id) != str(item["state_id"]):
+                    return Response(
+                        {"error": {"code": "state_mismatch", "message": "Reordering must stay within a column."}},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                before = self._neighbor(item.get("before_id"), issue.state_id, project_id, slug)
+                after = self._neighbor(item.get("after_id"), issue.state_id, project_id, slug)
+                if (item.get("before_id") and before is None) or (item.get("after_id") and after is None):
+                    return Response(
+                        {"error": "before_id and after_id must be work items in the same column."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                if before and after:
+                    sort_order = (before.sort_order + after.sort_order) / 2
+                elif before:
+                    sort_order = before.sort_order + 1000
+                elif after:
+                    sort_order = max(after.sort_order - 1000, 1.0)
+                else:
+                    largest = Issue.issue_objects.filter(project_id=project_id, state_id=issue.state_id).aggregate(
+                        largest=Max("sort_order")
+                    )["largest"]
+                    sort_order = (largest or 0) + 1000
+
+                Issue.issue_objects.filter(pk=issue.pk).update(sort_order=sort_order)
+                updated.append({"issue_id": str(issue.id), "sort_order": sort_order})
+
+        return Response({"updated": updated}, status=status.HTTP_200_OK)
+
+
 class IssueViewSet(BaseViewSet):
     model = Issue
     webhook_event = "issue"
@@ -217,12 +295,21 @@ class IssueViewSet(BaseViewSet):
         return IssueCreateSerializer if self.action in ["create", "update", "partial_update"] else IssueSerializer
 
     def get_queryset(self):
-        issues = Issue.issue_objects.filter(
-            project_id=self.kwargs.get("project_id"),
-            workspace__slug=self.kwargs.get("slug"),
-        ).distinct()
+        issues = (
+            Issue.issue_objects.filter(
+                project_id=self.kwargs.get("project_id"),
+                workspace__slug=self.kwargs.get("slug"),
+            )
+            .select_related("type")
+            .distinct()
+        )
 
         return issues
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        if getattr(self, "types_disabled", False):
+            response["X-Plane-Types-Disabled"] = "true"
+        return super().finalize_response(request, response, *args, **kwargs)
 
     def apply_annotations(self, issues):
         issues = (
@@ -271,6 +358,15 @@ class IssueViewSet(BaseViewSet):
 
         project = Project.objects.get(pk=project_id, workspace__slug=slug)
         query_params = request.query_params.copy()
+
+        # Projects with work item types disabled keep their legacy result. Rich
+        # filters are stripped in ComplexFilterBackend via this view flag, while
+        # direct/legacy query params are removed here.
+        self.types_disabled = not project.is_issue_type_enabled
+        self.ignore_type_filters = self.types_disabled
+        if self.types_disabled:
+            for key in ("type_id", "type_id__in", "issue_type"):
+                query_params.pop(key, None)
 
         filters = issue_filters(query_params, "GET")
         order_by_param = request.GET.get("order_by", "-created_at")
@@ -321,6 +417,10 @@ class IssueViewSet(BaseViewSet):
             issue_queryset = issue_queryset.filter(created_by=request.user)
             filtered_issue_queryset = filtered_issue_queryset.filter(created_by=request.user)
 
+        # Additive workflow board metadata. Legacy boards receive `None`, so
+        # existing response consumers are unaffected.
+        board_metadata = build_board_metadata(project, filtered_issue_queryset, request)
+
         if group_by:
             if sub_group_by:
                 if group_by == sub_group_by:
@@ -339,6 +439,7 @@ class IssueViewSet(BaseViewSet):
                         on_results=lambda issues: issue_on_results(
                             group_by=group_by, issues=issues, sub_group_by=sub_group_by
                         ),
+                        extra_stats=board_metadata,
                         paginator_cls=SubGroupedOffsetPaginator,
                         group_by_fields=issue_group_values(
                             field=group_by,
@@ -375,6 +476,7 @@ class IssueViewSet(BaseViewSet):
                     on_results=lambda issues: issue_on_results(
                         group_by=group_by, issues=issues, sub_group_by=sub_group_by
                     ),
+                    extra_stats=board_metadata,
                     paginator_cls=GroupedOffsetPaginator,
                     group_by_fields=issue_group_values(
                         field=group_by,
@@ -397,6 +499,7 @@ class IssueViewSet(BaseViewSet):
             return self.paginate(
                 order_by=order_by_param,
                 request=request,
+                extra_stats=board_metadata,
                 queryset=issue_queryset,
                 total_count_queryset=filtered_issue_queryset,
                 on_results=lambda issues: issue_on_results(group_by=group_by, issues=issues, sub_group_by=sub_group_by),
@@ -501,7 +604,7 @@ class IssueViewSet(BaseViewSet):
                 workspace__slug=self.kwargs.get("slug"),
                 pk=pk,
             )
-            .select_related("state")
+            .select_related("state", "type")
             .annotate(cycle_id=Subquery(CycleIssue.objects.filter(issue=OuterRef("id")).values("cycle_id")[:1]))
             .annotate(
                 link_count=Subquery(
@@ -679,7 +782,12 @@ class IssueViewSet(BaseViewSet):
         current_instance = json.dumps(IssueDetailSerializer(issue).data, cls=DjangoJSONEncoder)
 
         requested_data = json.dumps(self.request.data, cls=DjangoJSONEncoder)
-        serializer = IssueCreateSerializer(issue, data=request.data, partial=True, context={"project_id": project_id})
+        serializer = IssueCreateSerializer(
+            issue,
+            data=request.data,
+            partial=True,
+            context={"project_id": project_id, "user": request.user},
+        )
         if serializer.is_valid():
             serializer.save()
             # Check if the update is a migration description update
@@ -1236,7 +1344,7 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
         issue = (
             Issue.objects.filter(project_id=project.id)
             .filter(workspace__slug=slug)
-            .select_related("workspace", "project", "state", "parent")
+            .select_related("workspace", "project", "state", "parent", "type")
             .prefetch_related("assignees", "labels", "issue_module__module")
             .annotate(cycle_id=Subquery(CycleIssue.objects.filter(issue=OuterRef("id")).values("cycle_id")[:1]))
             .annotate(

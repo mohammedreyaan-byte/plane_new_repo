@@ -17,6 +17,7 @@ from plane.db.models import (
     Label,
     State,
     DraftIssue,
+    IssueType,
     DraftIssueAssignee,
     DraftIssueLabel,
     DraftIssueCycle,
@@ -298,10 +299,18 @@ class DraftIssueCreateSerializer(BaseSerializer):
         return super().update(instance, validated_data)
 
 
+class DraftIssueTypeLiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IssueType
+        fields = ["id", "key", "name", "logo_props", "is_epic"]
+        read_only_fields = fields
+
+
 class DraftIssueSerializer(BaseSerializer):
     # ids
     cycle_id = serializers.PrimaryKeyRelatedField(read_only=True)
     module_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    type = DraftIssueTypeLiteSerializer(read_only=True)
 
     # Many to many
     label_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
@@ -330,6 +339,7 @@ class DraftIssueSerializer(BaseSerializer):
             "created_by",
             "updated_by",
             "type_id",
+            "type",
             "description_html",
         ]
         read_only_fields = fields

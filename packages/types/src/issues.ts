@@ -67,6 +67,8 @@ export interface IIssueLabel {
   workspace_id: string;
   parent: string | null;
   sort_order: number;
+  created_at?: string;
+  issue_count?: number;
 }
 
 export interface IIssueLabelTree extends IIssueLabel {

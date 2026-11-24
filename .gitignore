@@ -118,3 +118,15 @@ packages/i18n/src/types/keys.generated.ts
 
 # Local security notes (not for version control)
 /security/
+
+# Local AI-agent implementation handoff (kept outside company submissions)
+/IMPLEMENTATION_STATUS.md
+/docker-compose.demo.override.yml
+
+# Requirement uploads and local review artifacts (not product source)
+/prompts/
+/PROJECT_SUMMARY_*.md
+/.playwright-mcp/
+*.log
+.pytest_cache/
+__pycache__/

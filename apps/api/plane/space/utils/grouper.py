@@ -15,6 +15,7 @@ from typing import List, Optional, Dict, Any, Union
 from plane.db.models import (
     Cycle,
     Issue,
+    IssueType,
     Label,
     Module,
     Project,
@@ -84,6 +85,7 @@ def issue_on_results(
         "id",
         "name",
         "state_id",
+        "type_id",
         "sort_order",
         "estimate_point",
         "priority",
@@ -228,6 +230,19 @@ def issue_group_values(
         return ["low", "medium", "high", "urgent", "none"]
     if field == "state__group":
         return ["backlog", "unstarted", "started", "completed", "cancelled"]
+    if field == "type_id":
+        type_queryset = IssueType.objects.filter(
+            workspace__slug=slug,
+            is_active=True,
+            deleted_at__isnull=True,
+        )
+        if project_id:
+            type_queryset = type_queryset.filter(
+                project_issue_types__project_id=project_id,
+                project_issue_types__is_enabled=True,
+                project_issue_types__deleted_at__isnull=True,
+            )
+        return list(type_queryset.values_list("id", flat=True).distinct()) + ["None"]
     if field == "target_date":
         queryset = queryset.values_list("target_date", flat=True).distinct()
         if project_id:

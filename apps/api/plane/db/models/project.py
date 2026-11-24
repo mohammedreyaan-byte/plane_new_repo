@@ -100,6 +100,7 @@ class Project(BaseModel):
     intake_view = models.BooleanField(default=False)
     is_time_tracking_enabled = models.BooleanField(default=False)
     is_issue_type_enabled = models.BooleanField(default=False)
+    board_wip_hard_limit = models.BooleanField(default=False)
     guest_view_all_features = models.BooleanField(default=False)
     reports_enabled = models.BooleanField(default=True)
     reports_nav_visible = models.BooleanField(default=True)

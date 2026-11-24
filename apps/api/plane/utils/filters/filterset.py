@@ -4,6 +4,7 @@
 
 import copy
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.db.models import Q
 from django_filters import FilterSet, filters
@@ -13,6 +14,21 @@ from plane.db.models import Issue
 
 class UUIDInFilter(filters.BaseInFilter, filters.UUIDFilter):
     pass
+
+
+class BoundedUUIDInFilter(UUIDInFilter):
+    """UUID list filter with an explicit upper bound for work item types."""
+
+    max_values = 20
+
+    def validate(self, value, name):
+        value = super().validate(value, name)
+        if value and len(value) > self.max_values:
+            raise DjangoValidationError(
+                f"At most {self.max_values} values are allowed for '{name}'.",
+                code="too_many_values",
+            )
+        return value
 
 
 class CharInFilter(filters.BaseInFilter, filters.CharFilter):
@@ -163,7 +179,7 @@ class IssueFilterSet(BaseFilterSet):
     state_id__in = UUIDInFilter(field_name="state_id", lookup_expr="in")
 
     type_id = filters.UUIDFilter(field_name="type_id")
-    type_id__in = UUIDInFilter(field_name="type_id", lookup_expr="in")
+    type_id__in = BoundedUUIDInFilter(field_name="type_id", lookup_expr="in")
 
     project_id = filters.UUIDFilter(field_name="project_id")
     project_id__in = UUIDInFilter(field_name="project_id", lookup_expr="in")

@@ -23,10 +23,48 @@ from plane.bgtasks.project_add_user_email_task import project_add_user_email
 from plane.utils.host import base_host
 from plane.app.permissions.base import allow_permission, ROLE
 from plane.utils.permissions.capabilities import (
+    KEY_TO_LEGACY_ID,
     LEGACY_ID_TO_KEY,
     resolve_role,
     role_key_for_membership,
 )
+
+
+def _role_level(role=None, role_ref=None, legacy_id=None):
+    """Return the integer level used by legacy role comparisons."""
+    key = None
+    if role_ref is not None:
+        key = role_ref.key
+    elif role is not None:
+        key = role_key_for_membership(role)
+    elif legacy_id is not None:
+        key = LEGACY_ID_TO_KEY.get(legacy_id)
+    return KEY_TO_LEGACY_ID.get(key, 0)
+
+
+def _resolve_member_role(workspace, role_key=None, legacy_role=None):
+    """Resolve a project membership role, rejecting conflicting identifiers."""
+    key = str(role_key).strip().lower() if role_key is not None else None
+    legacy_id = None
+    if legacy_role is not None:
+        try:
+            legacy_id = int(legacy_role)
+        except (TypeError, ValueError):
+            return None, "role must be an integer"
+    if key is not None:
+        expected = KEY_TO_LEGACY_ID.get(key)
+        if expected is None:
+            return None, "Invalid role."
+        if legacy_id is not None and legacy_id != expected:
+            return None, "role and role_key refer to different roles"
+    else:
+        key = LEGACY_ID_TO_KEY.get(legacy_id)
+        if key is None:
+            return None, "Invalid role."
+    role = resolve_role(workspace, key)
+    if role is None:
+        return None, "Invalid role."
+    return role, None
 
 
 class ProjectMemberViewSet(BaseViewSet):
@@ -73,48 +111,57 @@ class ProjectMemberViewSet(BaseViewSet):
         member_role_refs = {}
         for member in members:
             member_id = str(member.get("member_id"))
-            role_key = member.get("role_key")
-            legacy_role = member.get("role", 5)
-            role = resolve_role(project.workspace, role_key) if role_key else None
-            if role_key and role is None:
-                return Response({"role_key": ["Invalid role."]}, status=status.HTTP_400_BAD_REQUEST)
-            if role is None:
-                try:
-                    legacy_role = int(legacy_role)
-                except (TypeError, ValueError):
-                    return Response(
-                        {"error": "role must be an integer", "code": "invalid_role"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                role = resolve_role(project.workspace, LEGACY_ID_TO_KEY.get(legacy_role))
-            member_roles[member_id] = role.legacy_id if role else int(legacy_role)
+            role, error = _resolve_member_role(project.workspace, member.get("role_key"), member.get("role"))
+            if error is not None:
+                return Response(
+                    {"role_key": ["Invalid role."]} if error == "Invalid role." else {"error": error},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            member_roles[member_id] = role.legacy_id
             member_role_refs[member_id] = role
 
         # check the workspace role of the new user
-        for member in member_roles:
-            workspace_member_role = WorkspaceMember.objects.get(
-                workspace__slug=slug, member=member, is_active=True
-            ).role
-            if workspace_member_role in [20] and member_roles.get(member) in [5, 15]:
+        for member_id in member_roles:
+            workspace_member = WorkspaceMember.objects.select_related("role_ref").get(
+                workspace__slug=slug, member=member_id, is_active=True
+            )
+            workspace_level = _role_level(workspace_member)
+            project_level = _role_level(role_ref=member_role_refs[member_id])
+
+            if workspace_level == KEY_TO_LEGACY_ID["admin"] and project_level < workspace_level:
                 return Response(
                     {"error": "You cannot add a user with role lower than the workspace role"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            if workspace_member_role in [5] and member_roles.get(member) in [15, 20]:
+            if project_level > workspace_level:
                 return Response(
                     {"error": "You cannot add a user with role higher than the workspace role"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
         # Update roles in the members array based on the member_roles dictionary and set is_active to True
+        existing_member_ids = set()
         for project_member in ProjectMember.objects.filter(
             project_id=project_id,
             member_id__in=[member.get("member_id") for member in members],
         ):
-            project_member.role = member_roles[str(project_member.member_id)]
-            project_member.role_ref = member_role_refs.get(str(project_member.member_id))
+            member_id = str(project_member.member_id)
+            existing_member_ids.add(member_id)
+            old_role_key = role_key_for_membership(project_member)
+            project_member.role = member_roles[member_id]
+            project_member.role_ref = member_role_refs.get(member_id)
             project_member.is_active = True
+            if old_role_key != role_key_for_membership(project_member):
+                RoleAuditLog.objects.create(
+                    workspace=project.workspace,
+                    project=project,
+                    scope=RoleAuditLog.SCOPE_PROJECT,
+                    actor=request.user,
+                    target_id=project_member.member_id,
+                    old_role=old_role_key or "",
+                    new_role=role_key_for_membership(project_member) or "",
+                )
             bulk_project_members.append(project_member)
 
         # Update the roles of the existing members
@@ -159,6 +206,21 @@ class ProjectMemberViewSet(BaseViewSet):
 
         # Bulk create the project members and issue properties
         project_members = ProjectMember.objects.bulk_create(bulk_project_members, batch_size=10, ignore_conflicts=True)
+
+        for member in members:
+            member_id = str(member.get("member_id"))
+            if member_id in existing_member_ids:
+                continue
+            role_ref = member_role_refs[member_id]
+            RoleAuditLog.objects.create(
+                workspace=project.workspace,
+                project=project,
+                scope=RoleAuditLog.SCOPE_PROJECT,
+                actor=request.user,
+                target_id=member_id,
+                old_role="",
+                new_role=role_ref.key if role_ref else LEGACY_ID_TO_KEY.get(member_roles[member_id], ""),
+            )
 
         _ = ProjectUserProperty.objects.bulk_create(bulk_issue_props, batch_size=10, ignore_conflicts=True)
 
@@ -311,7 +373,8 @@ class ProjectMemberViewSet(BaseViewSet):
                 )
 
             # Cannot assign a role higher than the target's workspace role
-            if target_workspace_role in [5] and new_role in [15, 20]:
+            workspace_role_level = _role_level(legacy_id=target_workspace_role)
+            if _role_level(legacy_id=new_role) > workspace_role_level:
                 return Response(
                     {"error": "You cannot add a user with role higher than the workspace role"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -425,6 +488,15 @@ class ProjectMemberViewSet(BaseViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
+        RoleAuditLog.objects.create(
+            workspace=project_member.workspace,
+            project=project_member.project,
+            scope=RoleAuditLog.SCOPE_PROJECT,
+            actor=request.user,
+            target_id=project_member.member_id,
+            old_role=role_key_for_membership(project_member) or "",
+            new_role="",
+        )
         project_member.is_active = False
         project_member.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -452,6 +524,15 @@ class ProjectMemberViewSet(BaseViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        RoleAuditLog.objects.create(
+            workspace=project_member.workspace,
+            project=project_member.project,
+            scope=RoleAuditLog.SCOPE_PROJECT,
+            actor=request.user,
+            target_id=request.user.id,
+            old_role=role_key_for_membership(project_member) or "",
+            new_role="",
+        )
         # Deactivate the user
         project_member.is_active = False
         project_member.save()

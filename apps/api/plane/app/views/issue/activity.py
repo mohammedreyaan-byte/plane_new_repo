@@ -19,6 +19,8 @@ from .. import BaseAPIView
 from plane.app.serializers import IssueActivitySerializer, IssueCommentSerializer
 from plane.app.permissions import ProjectEntityPermission, allow_permission, ROLE
 from plane.db.models import IssueActivity, IssueComment, CommentReaction, IntakeIssue
+from plane.utils.permissions.capabilities import get_user_project_role
+from plane.utils.workflow.transition import WORKFLOW_DENIED_FIELD
 
 
 class IssueActivityEndpoint(BaseAPIView):
@@ -44,6 +46,10 @@ class IssueActivityEndpoint(BaseAPIView):
             .filter(**filters)
             .select_related("actor", "workspace", "issue", "project")
         ).order_by("created_at")
+
+        role = get_user_project_role(request.user, slug, project_id)
+        if not role or role.key != "admin":
+            issue_activities = issue_activities.exclude(field=WORKFLOW_DENIED_FIELD)
         issue_comments = (
             IssueComment.objects.filter(issue_id=issue_id)
             .filter(

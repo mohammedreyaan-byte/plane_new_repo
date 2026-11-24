@@ -26,6 +26,7 @@ export const IssueIdentifier = observer(function IssueIdentifier(props: TIssueId
   const issue = isUsingStoreData ? getIssueById(props.issueId) : null;
   const projectIdentifier = isUsingStoreData ? getProjectIdentifierById(projectId) : props.projectIdentifier;
   const issueSequenceId = isUsingStoreData ? issue?.sequence_id : props.issueSequenceId;
+  const issueTypeId = "issueTypeId" in props ? props.issueTypeId : issue?.type_id;
   const shouldRenderIssueID = displayProperties ? displayProperties.key : true;
 
   if (!shouldRenderIssueID) return null;
@@ -33,7 +34,7 @@ export const IssueIdentifier = observer(function IssueIdentifier(props: TIssueId
   return (
     <div className="flex shrink-0 items-center space-x-1.5">
       {/* Jira-style: type icon first, then the key (e.g. [icon] GMC-12) */}
-      {issue?.type_id && <WorkItemTypeIcon projectId={projectId} typeId={issue.type_id} />}
+      {issueTypeId && <WorkItemTypeIcon projectId={projectId} typeId={issueTypeId} />}
       <IdentifierText
         identifier={`${projectIdentifier}-${issueSequenceId}`}
         enableClickToCopyIdentifier={enableClickToCopyIdentifier}

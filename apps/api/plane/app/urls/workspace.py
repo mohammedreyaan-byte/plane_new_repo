@@ -10,6 +10,7 @@ from plane.app.views import (
     WorkSpaceViewSet,
     WorkspaceJoinEndpoint,
     WorkspaceBulkInviteEndpoint,
+    WorkspaceInvitationResendEndpoint,
     WorkSpaceMemberViewSet,
     WorkspaceInvitationsViewset,
     WorkspaceMemberUserEndpoint,
@@ -80,6 +81,11 @@ urlpatterns = [
         "workspaces/<str:slug>/invitations/<uuid:pk>/",
         WorkspaceInvitationsViewset.as_view({"delete": "destroy", "get": "retrieve", "patch": "partial_update"}),
         name="workspace-invitations",
+    ),
+    path(
+        "workspaces/<str:slug>/invitations/<uuid:pk>/resend/",
+        WorkspaceInvitationResendEndpoint.as_view(),
+        name="workspace-invitation-resend",
     ),
     # user workspace invitations
     path(

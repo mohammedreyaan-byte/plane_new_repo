@@ -3,10 +3,11 @@
 # See the LICENSE file for details.
 
 # Python imports
+import logging
 import random
 
 # Django imports
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 # Third Party imports
 from rest_framework.response import Response
@@ -16,8 +17,11 @@ from rest_framework import status
 from .. import BaseViewSet, BaseAPIView
 from plane.app.serializers import LabelSerializer
 from plane.app.permissions import allow_permission, ProjectBasePermission, ROLE
-from plane.db.models import Project, Label
+from plane.db.models import IssueLabel, Project, Label
 from plane.utils.cache import invalidate_cache
+from plane.utils.labels import label_issue_count, merge_labels
+
+logger = logging.getLogger("plane.labels")
 
 
 class LabelViewSet(BaseViewSet):
@@ -84,7 +88,70 @@ class LabelViewSet(BaseViewSet):
     @invalidate_cache(path="/api/workspaces/:slug/labels/", url_params=True, user=False)
     @allow_permission([ROLE.ADMIN])
     def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
+        label = self.get_object()
+        usage_count = label_issue_count(label)
+        force = str(request.query_params.get("force", "false")).lower() == "true"
+        comment = (request.data.get("comment") or request.query_params.get("comment") or "").strip()
+        if usage_count and not force:
+            return Response(
+                {
+                    "error": {
+                        "code": "label_in_use",
+                        "message": "This label is used by work items. Pass force=true to remove those links.",
+                        "details": {"issue_count": usage_count},
+                    }
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if usage_count and force and not comment:
+            return Response(
+                {
+                    "error": {
+                        "code": "comment_required",
+                        "message": "A comment is required when force deleting a label in use.",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            if usage_count:
+                IssueLabel.objects.filter(label=label, deleted_at__isnull=True).delete()
+                logger.info(
+                    "label force delete slug=%s project=%s label=%s removed_links=%s comment=%s",
+                    kwargs.get("slug"),
+                    kwargs.get("project_id"),
+                    label.id,
+                    usage_count,
+                    comment,
+                )
+            label.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LabelMergeEndpoint(BaseAPIView):
+    """Admin-only duplicate resolution with a preview/apply contract."""
+
+    @allow_permission([ROLE.ADMIN])
+    def post(self, request, slug, project_id):
+        target_id = request.data.get("target_id")
+        source_ids = request.data.get("source_ids") or []
+        if not target_id or not isinstance(source_ids, list) or len(source_ids) < 1:
+            return Response(
+                {"error": "target_id and at least one source_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dry_run = str(request.data.get("preview", request.query_params.get("preview", True))).lower() != "false"
+        try:
+            result = merge_labels(
+                workspace_slug=slug,
+                target_id=target_id,
+                source_ids=source_ids,
+                actor=request.user,
+                dry_run=dry_run,
+            )
+        except ValueError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class BulkCreateIssueLabelsEndpoint(BaseAPIView):

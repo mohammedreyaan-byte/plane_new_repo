@@ -11,6 +11,7 @@ import type { IUserLite, TProjectMembership } from "@plane/types";
 export interface IMemberFilters {
   order_by?: TMemberOrderByOptions;
   roles?: string[];
+  status?: "active" | "pending" | "suspended";
 }
 
 // Helper function to parse order key and direction
@@ -72,28 +73,29 @@ export const filterProjectMembersByRole = (
   });
 };
 
-export const filterWorkspaceMembersByRole = <T extends { role: string | EUserPermissions; is_active?: boolean }>(
+export const filterWorkspaceMembersByRole = <
+  T extends { role: string | EUserPermissions; role_key?: string; is_active?: boolean },
+>(
   members: T[],
-  roleFilters: string[]
+  roleFilters: string[],
+  status?: IMemberFilters["status"]
 ): T[] => {
-  if (roleFilters.length === 0) return members;
+  if (roleFilters.length === 0 && status === undefined) return members;
 
   return members.filter((member) => {
-    const memberRole = String(member.role ?? "");
+    const memberRole = String(member.role_key ?? member.role ?? "");
     const isSuspended = member.is_active === false;
-
-    // Check if suspended is in the role filters
+    const roleFiltersForMember = roleFilters.filter((role) => !["active", "pending", "suspended"].includes(role));
+    const matchesRole = roleFiltersForMember.length === 0 || roleFiltersForMember.includes(memberRole);
     const hasSuspendedFilter = roleFilters.includes("suspended");
-    // Get non-suspended role filters
-    const activeRoleFilters = roleFilters.filter((role) => role !== "suspended");
 
-    // For suspended users, include them only if suspended filter is selected
-    if (isSuspended) {
-      return hasSuspendedFilter;
-    }
+    if (status === "pending") return false;
+    if (status === "suspended") return isSuspended && matchesRole;
+    if (status === "active") return !isSuspended && matchesRole;
 
-    // For active users, include them only if their role matches any active role filter
-    return activeRoleFilters.includes(memberRole);
+    // Keep the legacy behaviour when no explicit status was selected.
+    if (isSuspended) return hasSuspendedFilter;
+    return matchesRole;
   });
 };
 
@@ -170,14 +172,18 @@ export const sortProjectMembers = (
   );
 };
 
-export const sortWorkspaceMembers = <T extends { role: string | EUserPermissions; is_active?: boolean }>(
+export const sortWorkspaceMembers = <
+  T extends { role: string | EUserPermissions; role_key?: string; is_active?: boolean },
+>(
   members: T[],
   memberDetailsMap: Record<string, IUserLite>,
   getMemberKey: (member: T) => string,
   filters?: IMemberFilters
 ): T[] => {
   const filteredMembers =
-    filters?.roles && filters.roles.length > 0 ? filterWorkspaceMembersByRole(members, filters.roles) : members;
+    filters?.roles || filters?.status
+      ? filterWorkspaceMembersByRole(members, filters.roles ?? [], filters.status)
+      : members;
 
   // If no order_by filter, return filtered members
   if (!filters?.order_by) return filteredMembers;

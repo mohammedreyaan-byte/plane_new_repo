@@ -53,6 +53,7 @@ class WorkflowState(ProjectBaseModel):
     sequence = models.FloatField(default=65535)
     is_initial = models.BooleanField(default=False)
     is_final = models.BooleanField(default=False)
+    wip_limit = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Workflow State"

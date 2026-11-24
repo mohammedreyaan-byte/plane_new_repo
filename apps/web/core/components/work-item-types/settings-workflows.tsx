@@ -8,11 +8,16 @@ import { useState } from "react";
 import { observer } from "mobx-react";
 import useSWR from "swr";
 import { Button } from "@plane/propel/button";
+import { LockIcon } from "@plane/propel/icons";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { cn } from "@plane/utils";
 import { useProjectWorkItemTypes } from "@/hooks/use-work-item-types";
+import { ProjectService } from "@/services/project/project.service";
 import { workItemTypesService } from "@/services/work-item-types.service";
-import type { TWorkflowErrorBody, TWorkflowTransition } from "@/services/work-item-types.service";
+import type { TWorkflow, TWorkflowErrorBody, TWorkflowTransition } from "@/services/work-item-types.service";
+import { CloneWorkflowModal } from "./clone-workflow-modal";
+
+const projectService = new ProjectService();
 
 const ROLES = ["admin", "member", "developer", "qa"] as const;
 const REQUIRED_FIELDS = ["assignee", "estimate", "priority", "description", "due_date"] as const;
@@ -43,13 +48,18 @@ function Chip(props: { active: boolean; disabled?: boolean; onClick: () => void;
 
 /** Project settings: view and edit who can make each state change, per work item type. */
 export const WorkflowsSettings = observer(function WorkflowsSettings({ workspaceSlug, projectId, canManage }: Props) {
-  const { isEnabled } = useProjectWorkItemTypes(projectId);
+  const { isEnabled, rows: projectTypes } = useProjectWorkItemTypes(projectId);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cloneSource, setCloneSource] = useState<TWorkflow | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [previewRole, setPreviewRole] = useState("");
 
-  const { data: workflows } = useSWR(isEnabled ? `WORKFLOWS_${projectId}` : null, () =>
+  const { data: project, mutate: mutateProject } = useSWR(`PROJECT_WIP_${projectId}`, () =>
+    projectService.getProject(workspaceSlug, projectId)
+  );
+  const { data: workflows, mutate: mutateWorkflows } = useSWR(isEnabled ? `WORKFLOWS_${projectId}` : null, () =>
     workItemTypesService.listWorkflows(workspaceSlug, projectId)
   );
   const workflowId = selected ?? workflows?.[0]?.id ?? null;
@@ -58,6 +68,26 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
   );
   const { data: health, mutate: mutateHealth } = useSWR(isEnabled ? `WORKFLOW_HEALTH_${projectId}` : null, () =>
     workItemTypesService.getWorkflowHealth(workspaceSlug, projectId)
+  );
+
+  // Admin-only "test as role" preview. It uses one real work item from the selected workflow.
+  const { data: previewIssues } = useSWR(
+    canManage && previewRole && workflow?.id ? `WORKFLOW_PREVIEW_ISSUES_${workflow.id}` : null,
+    () => workItemTypesService.listProjectIssues(workspaceSlug, projectId, workflow?.issue_type ?? undefined)
+  );
+  const previewIssueId = previewIssues?.[0]?.id;
+  const { data: preview, error: previewError } = useSWR(
+    canManage && previewRole && workflow?.id && previewIssueId
+      ? `WORKFLOW_PREVIEW_${workflow.id}_${previewIssueId}_${previewRole}`
+      : null,
+    () =>
+      workItemTypesService.getWorkflowAllowedTransitions(
+        workspaceSlug,
+        projectId,
+        workflow!.id,
+        previewIssueId!,
+        previewRole
+      )
   );
 
   if (!isEnabled) {
@@ -88,12 +118,17 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {workflows?.map((w) => (
           <Chip key={w.id} active={w.id === workflowId} onClick={() => setSelected(w.id)}>
             {w.issue_type_key ? w.name : `${w.name} (project default)`}
           </Chip>
         ))}
+        {canManage && workflow && (
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => setCloneSource(workflow)}>
+            Clone workflow
+          </Button>
+        )}
       </div>
 
       {health && health.issues.length > 0 && (
@@ -102,7 +137,7 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
           <ul className="mt-1 list-disc pl-5">
             {health.issues.map((issue) => (
               <li key={`${issue.code}-${issue.workflow_id}-${String(issue.state_id ?? issue.message ?? "")}`}>
-                {issue.message ?? issue.code}
+                {issue.message ?? issue.detail ?? issue.code}
               </li>
             ))}
           </ul>
@@ -120,6 +155,59 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
                 {s.is_final ? " (end)" : ""}
               </span>
             ))}
+          </div>
+
+          <div className="space-y-2 rounded-md border border-subtle p-3">
+            <div className="flex flex-wrap items-center gap-2 text-12 text-secondary">
+              <span className="font-medium text-primary">Work in progress limits</span>
+              <span>Leave a limit empty to warn only.</span>
+              <Chip
+                active={Boolean(project?.board_wip_hard_limit)}
+                disabled={!canManage || busy}
+                onClick={() =>
+                  void run(
+                    () =>
+                      projectService
+                        .updateProject(workspaceSlug, projectId, {
+                          board_wip_hard_limit: !project?.board_wip_hard_limit,
+                        })
+                        .then(() => mutateProject()),
+                    "Board WIP policy saved."
+                  )
+                }
+              >
+                Hard limit {project?.board_wip_hard_limit ? "on" : "off"}
+              </Chip>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {workflow.states?.map((s) => (
+                <label key={`${s.id}-${s.wip_limit ?? "none"}`} className="flex items-center gap-1.5 text-12 text-secondary">
+                  <span>{s.name}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    disabled={!canManage || busy}
+                    defaultValue={s.wip_limit ?? ""}
+                    placeholder="off"
+                    aria-label={`WIP limit for ${s.name}`}
+                    className="w-16 rounded-sm border border-subtle bg-layer-1 px-1.5 py-0.5 text-12 text-primary"
+                    onBlur={(e) => {
+                      const raw = e.currentTarget.value.trim();
+                      const value = raw === "" ? null : Number(raw);
+                      if (value !== null && (!Number.isInteger(value) || value < 0)) {
+                        setToast({ type: TOAST_TYPE.ERROR, title: "Error", message: "Enter a non-negative whole number." });
+                        return;
+                      }
+                      if (value === s.wip_limit) return;
+                      void run(
+                        () => workItemTypesService.updateWorkflowState(workspaceSlug, projectId, workflow.id, s.id, { wip_limit: value }),
+                        "WIP limit saved."
+                      );
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-md border border-subtle">
@@ -140,6 +228,14 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
+                        {t.allowed_roles.length > 0 && (
+                          <span
+                            title={`Restricted to ${t.allowed_roles.join(", ")}`}
+                            className="inline-flex items-center text-tertiary"
+                          >
+                            <LockIcon className="size-3" />
+                          </span>
+                        )}
                         {ROLES.map((role) => (
                           <Chip
                             key={role}
@@ -166,6 +262,13 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
                           onClick={() => void patch(t, { requires_comment: !t.requires_comment })}
                         >
                           comment
+                        </Chip>
+                        <Chip
+                          disabled={!canManage || busy}
+                          active={t.admin_override}
+                          onClick={() => void patch(t, { admin_override: !t.admin_override })}
+                        >
+                          admin override
                         </Chip>
                         {REQUIRED_FIELDS.map((field) => (
                           <Chip
@@ -200,6 +303,54 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
               </tbody>
             </table>
           </div>
+
+          {canManage && (
+            <div className="rounded-md border border-subtle p-3 text-12 text-secondary">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="workflow-preview-role" className="font-medium text-primary">
+                  Test as role
+                </label>
+                <select
+                  id="workflow-preview-role"
+                  aria-label="Test as role"
+                  value={previewRole}
+                  onChange={(event) => setPreviewRole(event.target.value)}
+                  className="h-8 rounded-md border border-subtle bg-surface-1 px-2 text-13"
+                >
+                  <option value="">Off</option>
+                  {ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {previewRole && (
+                <div className="mt-2 space-y-1">
+                  {previewError ? (
+                    <p className="text-danger-primary">{errorMessage(previewError, "Preview unavailable.")}</p>
+                  ) : !previewIssueId ? (
+                    <p>No work item exists for this type yet.</p>
+                  ) : !preview ? (
+                    <p>Loading preview…</p>
+                  ) : (
+                    <>
+                      <p>
+                        <span className="font-medium text-primary">Allowed:</span>{" "}
+                        {preview.transitions.map((t) => t.to_state_name).join(", ") || "none"}
+                      </p>
+                      <p>
+                        <span className="font-medium text-primary">Denied:</span>{" "}
+                        {(preview.denied ?? [])
+                          .map((t) => `${t.to_state_name} (${t.reason ?? "restricted"})`)
+                          .join("; ") || "none"}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {canManage && (
             <div className="flex flex-wrap items-center gap-2">
@@ -257,6 +408,21 @@ export const WorkflowsSettings = observer(function WorkflowsSettings({ workspace
             </div>
           )}
         </>
+      )}
+      {cloneSource && workflows && (
+        <CloneWorkflowModal
+          isOpen={Boolean(cloneSource)}
+          source={cloneSource}
+          projectId={projectId}
+          workflows={workflows}
+          projectTypes={projectTypes}
+          onClose={() => setCloneSource(null)}
+          onCreated={async (cloned) => {
+            await mutateWorkflows();
+            setSelected(cloned.id);
+            setToast({ type: TOAST_TYPE.SUCCESS, title: "Workflow cloned", message: `${cloned.name} is ready to configure.` });
+          }}
+        />
       )}
     </div>
   );

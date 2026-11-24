@@ -37,6 +37,8 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
         try:
             if filter_data is not None:
                 normalized = self._normalize_filter_data(filter_data, "filter_data")
+                if getattr(view, "ignore_type_filters", False):
+                    normalized = self._strip_type_filters(normalized)
                 return self._apply_json_filter(queryset, normalized, view)
 
             filter_string = request.query_params.get(self.filter_param, None)
@@ -44,6 +46,8 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
                 return queryset
 
             normalized = self._normalize_filter_data(filter_string, "filter")
+            if getattr(view, "ignore_type_filters", False):
+                normalized = self._strip_type_filters(normalized)
             return self._apply_json_filter(queryset, normalized, view)
         except DRFValidationError:
             # Propagate validation errors unchanged
@@ -51,6 +55,24 @@ class ComplexFilterBackend(filters.BaseFilterBackend):
         except Exception as e:
             log_exception(e)
             raise
+
+    @staticmethod
+    def _strip_type_filters(filter_data):
+        """Remove work-item type filters from a parsed filter tree.
+
+        Projects with work item types disabled must keep their legacy result,
+        including when a saved View still carries a type filter.
+        """
+        type_keys = {"type_id", "type_id__in", "issue_type"}
+        if isinstance(filter_data, list):
+            return [ComplexFilterBackend._strip_type_filters(item) for item in filter_data]
+        if not isinstance(filter_data, dict):
+            return filter_data
+        return {
+            key: ComplexFilterBackend._strip_type_filters(value)
+            for key, value in filter_data.items()
+            if key.lower() not in type_keys
+        }
 
     def _normalize_filter_data(self, raw_filter, source_label):
         """Return a dict from raw filter input or raise a ValidationError.

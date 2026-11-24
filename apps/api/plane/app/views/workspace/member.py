@@ -242,6 +242,14 @@ class WorkSpaceMemberViewSet(BaseViewSet):
             workspace__slug=slug, member_id=workspace_member.member_id, is_active=True
         ).update(is_active=False, updated_at=timezone.now())
 
+        RoleAuditLog.objects.create(
+            workspace=workspace_member.workspace,
+            scope=RoleAuditLog.SCOPE_WORKSPACE,
+            actor=request.user,
+            target_id=workspace_member.member_id,
+            old_role=role_key_for_membership(workspace_member) or "",
+            new_role="",
+        )
         workspace_member.is_active = False
         workspace_member.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -296,6 +304,14 @@ class WorkSpaceMemberViewSet(BaseViewSet):
             workspace__slug=slug, member_id=workspace_member.member_id, is_active=True
         ).update(is_active=False, updated_at=timezone.now())
 
+        RoleAuditLog.objects.create(
+            workspace=workspace_member.workspace,
+            scope=RoleAuditLog.SCOPE_WORKSPACE,
+            actor=request.user,
+            target_id=request.user.id,
+            old_role=role_key_for_membership(workspace_member) or "",
+            new_role="",
+        )
         # # Deactivate the user
         workspace_member.is_active = False
         workspace_member.save()

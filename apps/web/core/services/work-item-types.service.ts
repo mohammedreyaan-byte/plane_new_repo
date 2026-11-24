@@ -12,7 +12,11 @@ export type TWorkItemType = {
   key: string | null;
   name: string;
   description: string;
-  logo_props: { in_use?: string; icon?: { name?: string; color?: string } } | null;
+  logo_props: {
+    in_use?: string;
+    icon?: string | { name?: string; color?: string };
+    color?: string;
+  } | null;
   is_epic: boolean;
   is_default: boolean;
   is_active: boolean;
@@ -47,6 +51,7 @@ export type TWorkflowState = {
   sequence: number;
   is_initial: boolean;
   is_final: boolean;
+  wip_limit: number | null;
 };
 
 export type TWorkflow = {
@@ -76,12 +81,43 @@ export type TAllowedTransition = {
 export type TAllowedTransitions = {
   issue_id: string;
   current_state_id: string | null;
+  current_state_name?: string | null;
   workflow_id: string | null;
   transitions: TAllowedTransition[];
   denied?: TAllowedTransition[];
 };
 
-export type TWorkflowHealthIssue = { code: string; workflow_id: string; message?: string; [key: string]: unknown };
+export type TIssueOption = { id: string; name: string };
+
+export type TWorkflowHealthIssue = {
+  code: string;
+  type_id?: string | null;
+  workflow_id?: string | null;
+  detail?: string | null;
+  message?: string | null;
+  [key: string]: unknown;
+};
+
+export type TWorkflowExport = {
+  name: string;
+  issue_type_key: string | null;
+  states: {
+    name: string;
+    group: string;
+    sequence: number;
+    is_initial: boolean;
+    is_final: boolean;
+  }[];
+  transitions: {
+    from: string;
+    to: string;
+    allowed_roles: string[];
+    requires_comment: boolean;
+    required_fields: string[];
+    admin_override: boolean;
+    is_active: boolean;
+  }[];
+};
 
 /** Error body returned by the workflow engine: { error: { code, message, details } }. */
 export type TWorkflowErrorBody = { error: { code: string; message: string; details?: Record<string, unknown> } };
@@ -234,6 +270,21 @@ export class WorkItemTypesService extends APIService {
       });
   }
 
+  /** Set (or clear, with null) the WIP limit for one workflow state. */
+  async updateWorkflowState(
+    workspaceSlug: string,
+    projectId: string,
+    workflowId: string,
+    stateId: string,
+    data: { wip_limit: number | null }
+  ): Promise<TWorkflowState> {
+    return this.patch(`${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/states/${stateId}/`, data)
+      .then((r) => r?.data)
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
   async createTransition(
     workspaceSlug: string,
     projectId: string,
@@ -277,9 +328,51 @@ export class WorkItemTypesService extends APIService {
       });
   }
 
-  async resetWorkflow(workspaceSlug: string, projectId: string, workflowId: string): Promise<void> {
-    return this.post(`${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/reset/`)
+  async resetWorkflow(
+    workspaceSlug: string,
+    projectId: string,
+    workflowId: string,
+    force = false
+  ): Promise<void> {
+    return this.post(`${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/reset/${force ? "?force=true" : ""}`)
       .then(() => undefined)
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
+  async exportWorkflow(
+    workspaceSlug: string,
+    projectId: string,
+    workflowId: string
+  ): Promise<TWorkflowExport> {
+    return this.get(`${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/export/`)
+      .then((r) => r?.data)
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
+  async importWorkflow(
+    workspaceSlug: string,
+    projectId: string,
+    data: TWorkflowExport
+  ): Promise<TWorkflow> {
+    return this.post(`${this.project(workspaceSlug, projectId)}/workflows/import/`, data)
+      .then((r) => r?.data)
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
+  async cloneWorkflow(
+    workspaceSlug: string,
+    projectId: string,
+    workflowId: string,
+    data: { name: string; issue_type_id: string; replace: boolean }
+  ): Promise<TWorkflow> {
+    return this.post(`${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/clone/`, data)
+      .then((r) => r?.data)
       .catch((e) => {
         throw e?.response?.data;
       });
@@ -301,16 +394,49 @@ export class WorkItemTypesService extends APIService {
       });
   }
 
+  /** Admin-only "test as role" preview for a workflow and one sample issue. */
+  async getWorkflowAllowedTransitions(
+    workspaceSlug: string,
+    projectId: string,
+    workflowId: string,
+    issueId: string,
+    role: string
+  ): Promise<TAllowedTransitions> {
+    return this.get(
+      `${this.project(workspaceSlug, projectId)}/workflows/${workflowId}/allowed-transitions/?issue_id=${issueId}&role=${role}`
+    )
+      .then((r) => r?.data)
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
+  /** Small issue list used only by the workflow preview picker. */
+  async listProjectIssues(
+    workspaceSlug: string,
+    projectId: string,
+    issueTypeId?: string
+  ): Promise<TIssueOption[]> {
+    const query = issueTypeId ? `?issue_type=${issueTypeId}&per_page=1` : "?per_page=1";
+    return this.get(`${this.project(workspaceSlug, projectId)}/issues/${query}`)
+      .then((r) => (Array.isArray(r?.data?.results) ? r.data.results : []))
+      .catch((e) => {
+        throw e?.response?.data;
+      });
+  }
+
   async transitionWorkItem(
     workspaceSlug: string,
     projectId: string,
     issueId: string,
     toStateId: string,
-    comment?: string
+    comment?: string,
+    transitionId?: string
   ): Promise<{ issue_id: string; state_id: string; previous_state_id: string }> {
     return this.post(`${this.project(workspaceSlug, projectId)}/work-items/${issueId}/transition/`, {
       to_state_id: toStateId,
       comment: comment ?? "",
+      ...(transitionId ? { transition_id: transitionId } : {}),
     })
       .then((r) => r?.data)
       .catch((e) => {
