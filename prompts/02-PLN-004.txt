@@ -1,0 +1,265 @@
+================================================================================
+PROMPT 02 - PLN-004: Work item types - Bug / Task / Story / Epic
+================================================================================
+Priority:      P0 - build from scratch at runtime (model scaffold exists)
+Type:          Backend + frontend build, data backfill
+Depends on:    PROMPT 01 (roles), PROMPT 22 (CI)
+Branch:        feature/PLN-004-work-item-types
+Estimated:     10-12 dev days
+
+--------------------------------------------------------------------------------
+CONTEXT AND VERIFIED CODE FACTS
+--------------------------------------------------------------------------------
+The database scaffold already exists but is unused:
+
+  apps/api/plane/db/models/issue_type.py
+      IssueType: workspace, name, description, logo_props, is_epic, is_default,
+                 is_active, level, external_source, external_id
+      ProjectIssueType: project, issue_type, level, is_default
+  apps/api/plane/db/models/issue.py:164
+      Issue.type = FK(IssueType, null=True, on_delete=SET_NULL)
+  apps/api/plane/db/models/project.py:99
+      Project.is_issue_type_enabled = BooleanField(default=False)
+
+Partial plumbing that already works and must be reused, not rewritten:
+  - apps/api/plane/api/serializers/issue.py:66-166 accepts `type_id`, resolves
+    the default type from ProjectIssueType, and assigns it on create.
+  - apps/web/core/components/issues/issue-modal/form.tsx reads/writes `type_id`.
+  - apps/web/core/components/issues/issue-layouts/list/block.tsx already has a
+    displayProperties.issue_type branch.
+  - The API returns type data on some v1 endpoints.
+
+What is actually missing:
+  - No seeded IssueType rows and no project enablement rows.
+  - No type management API (workspace CRUD, project enable/disable/default).
+  - No type in the web app serializers/projections, so the UI cannot render it.
+  - No type selector in the create modal or detail properties (the plumbing is
+    there but no data and no control).
+  - No type badge, no type filter/grouping, no type settings screen.
+  - No backfill: issues.type_id is empty.
+  - `type: bug` label is used by 4 items.
+
+RULE: Do not duplicate the type field. Extend the existing model, wire the
+missing layers, and keep payload compatibility.
+
+--------------------------------------------------------------------------------
+DATA MODEL
+--------------------------------------------------------------------------------
+1. Extend IssueType (new migration, additive only):
+     key = SlugField(max_length=50, null=True)   # bug, task, story, epic
+     is_epic already exists - keep it
+     is_default already exists - keep it
+     is_active already exists - keep it
+   Add constraint: unique (workspace, key) where deleted_at is null and key is
+   not null.
+   Backfill key from slugify(name) for any existing row (currently zero rows,
+   but the migration must be safe).
+
+2. Extend ProjectIssueType:
+     is_enabled = BooleanField(default=True)
+     is_default = BooleanField(default=False)     # already exists, keep
+     level already exists, use it for ordering
+   Constraint: at most one is_default=true per project where deleted_at is null
+   (partial unique index). At most one workspace-level default type
+   (IssueType.is_default=true and workspace=... ) is allowed.
+
+3. Seed data migration per workspace (idempotent):
+     Bug    key=bug    is_epic=false  icon/colour bug     level 0  default
+     Task   key=task   is_epic=false  icon/colour task    level 1
+     Story  key=story  is_epic=false  icon/colour story   level 2
+     Epic   key=epic   is_epic=true   icon/colour epic    level 3
+   For every existing project create ProjectIssueType rows for all four,
+   is_enabled=true, and Task is_default=true.
+   For every project with is_issue_type_enabled=true, enable the four types.
+   Do not flip the flag for existing projects in this migration; enable it for
+   SDLC in a separate, explicit data step after UAT.
+
+4. Backfill issues:
+   - For every issue with type_id null, set the project's default type
+     (Task) in batches of 500 using iterator().
+   - For issues carrying the label whose name is `type: bug` (case-insensitive),
+     set type=Bug, then remove the label link. Do this only when the project has
+     types enabled. Log counts.
+   - Never touch issues in projects with types disabled.
+   - The migration must be re-runnable and report {scanned, updated, skipped}.
+
+5. Add `type` to indexes and select_related in list queries (see PROMPT 06).
+
+--------------------------------------------------------------------------------
+API
+--------------------------------------------------------------------------------
+Workspace type management (new files):
+  apps/api/plane/app/serializers/issue_type.py
+  apps/api/plane/app/views/issue_type.py
+  apps/api/plane/app/urls/issue_type.py   (add to app/urls/__init__.py)
+
+  GET    /api/workspaces/<slug>/work-item-types/
+  POST   /api/workspaces/<slug>/work-item-types/
+  GET    /api/workspaces/<slug>/work-item-types/<type_id>/
+  PATCH  /api/workspaces/<slug>/work-item-types/<type_id>/
+  DELETE /api/workspaces/<slug>/work-item-types/<type_id>/
+  POST   /api/workspaces/<slug>/work-item-types/reorder/
+
+  Create payload:
+    { "name": "Bug", "key": "bug", "description": "...",
+      "logo_props": {"icon": "bug", "color": "#..."},
+      "is_epic": false, "is_default": false, "level": 0 }
+  Response includes id, key, name, description, logo_props, is_epic,
+  is_default, is_active, projects_count.
+
+Project enablement:
+  GET    /api/workspaces/<slug>/projects/<pid>/work-item-types/
+  POST   /api/workspaces/<slug>/projects/<pid>/work-item-types/
+         body {"issue_type_id": "...", "is_enabled": true, "is_default": false}
+  PATCH  /api/workspaces/<slug>/projects/<pid>/work-item-types/<id>/
+  DELETE /api/workspaces/<slug>/projects/<pid>/work-item-types/<id>/
+  POST   /api/workspaces/<slug>/projects/<pid>/work-item-types/reorder/
+
+Validation rules:
+  - Type must belong to the same workspace. Cross-workspace -> 400.
+  - Deleting a type with issues -> 409 with count; require ?force=true and then
+    reassign to the project default in a transaction.
+  - Deleting the default type -> 409 default_type_protected.
+  - Deleting the epic type while modules link to it -> 409 epic_type_in_use.
+  - Enabling a type is idempotent.
+  - Setting is_default=true atomically clears the previous default.
+  - Project with is_issue_type_enabled=false: GET returns the four types with
+    is_enabled=false; mutations return 400 types_disabled.
+
+Issue payload changes (additive, both surfaces):
+  - Read: `type_id` (uuid or null) and `type` object
+      {id, key, name, logo_props, is_epic}
+  - Write: `type_id` accepted on create and PATCH.
+  - Create without type_id -> project default (already implemented in v1;
+    replicate in the web serializer/view path).
+  - PATCH type_id to a type not enabled in the project -> 400.
+  - Changing type when the item's state is not in the new type's workflow:
+    allowed only after PROMPT 03 exists; until then, do not change state.
+    When workflows exist, reset to the new workflow's initial state and record
+    an activity row "Type changed from X to Y; state reset to Z".
+  - Bulk update accepts type_id.
+  - Webhook payloads include type_id, type_key, type_name.
+
+Implement in:
+  apps/api/plane/app/serializers/issue.py        (read + write, list projection)
+  apps/api/plane/app/views/issue/base.py         (create/update)
+  apps/api/plane/api/serializers/issue.py        (keep and align)
+  apps/api/plane/api/views/issue.py
+  apps/api/plane/app/serializers/project.py      (expose is_issue_type_enabled)
+  apps/api/plane/app/serializers/state.py        (later: type-aware states)
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+Types are configuration, so they live in Settings, not the main sidebar.
+
+A. Workspace settings -> Work item types (new)
+   Route file:
+     apps/web/app/(all)/[workspaceSlug]/(settings)/settings/(workspace)/work-item-types/page.tsx
+   Register in apps/web/app/routes/core.ts inside the workspace settings layout.
+   Components:
+     apps/web/core/components/work-item-types/
+       index.ts
+       type-list.tsx
+       type-list-item.tsx
+       create-update-type-modal.tsx
+       delete-type-modal.tsx
+       type-icon-picker.tsx
+   UI:
+     - list with icon, name, key, description, epic badge, default badge,
+       projects count, active toggle, drag handle for order.
+     - create/edit modal: name, key (auto-slug, immutable after create), icon,
+       colour, description, is_epic, set as default.
+     - delete guarded with the API errors above.
+     - empty state explains the four default types.
+
+B. Project settings -> Work item types (new)
+   Route file:
+     apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/work-item-types/page.tsx
+   UI:
+     - enable/disable each type, set default, reorder.
+     - a project-level toggle "Enable work item types" bound to
+       Project.is_issue_type_enabled.
+     - warning when disabling types: existing type values are kept but hidden.
+
+C. Create work item
+   - apps/web/core/components/issues/issue-modal/form.tsx already has type_id.
+     Add the visible selector to the default properties block:
+       apps/web/core/components/issues/issue-modal/components/default-properties.tsx
+     - fetch enabled project types from the project types endpoint;
+       fall back to the default type; never show a type that is disabled.
+   - The selector shows icon + name and an "Epic" marker.
+
+D. Work item detail
+   - Add a "Type" property row to:
+       apps/web/core/components/issues/issue-detail/  (properties/sidebar)
+     using the existing property row pattern (same as State/Priority).
+   - Editing type calls PATCH and shows a confirmation if a state reset will
+     happen (once workflows exist).
+
+E. Badges everywhere
+   - Create apps/web/core/components/issues/issue-type-badge.tsx
+     props: typeId, projectId, size, showName, className.
+   - Render in: kanban card, list row, spreadsheet cell, calendar chip,
+     timeline/gantt bar, peek overview, search results, parent/sub-item rows,
+     relations, recents, bulk modal rows.
+   - Badge reads from a cached type store; no per-card fetch. Hydrate the store
+     once per project.
+
+F. Store and services
+   - apps/web/core/services/work-item-type.service.ts
+       listWorkspaceTypes, createType, updateType, deleteType,
+       listProjectTypes, updateProjectType, reorder
+   - apps/web/core/store/work-item-type.store.ts
+       root store registration; maps by workspace and project; loading/error.
+   - apps/web/core/hooks/store/use-work-item-type.ts
+   - packages/types/src/issues.ts (add TIssueType, TProjectIssueType) and export
+     them from packages/types/src/index.ts, following the existing type file
+     conventions. Do not add a .d.ts file if the package uses .ts modules.
+
+G. Project feature flag
+   - When is_issue_type_enabled=false, hide all type controls and badges and
+     behave exactly like v1.4.2. Do not remove type data on toggle.
+
+--------------------------------------------------------------------------------
+MIGRATIONS AND DEPLOYMENT
+--------------------------------------------------------------------------------
+- Schema migrations first, then seed, then backfill. Run the backfill against a
+  copy of the SDLC database and report counts before production.
+- Keep the old `type` label temporarily; remove it only after the backfill
+  report is signed off.
+- Rollback: disabling the project flag hides types without a data restore.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Model: key uniqueness, one default per project, cross-workspace rejection.
+- API: create/update/delete/reorder; default switching; delete protection;
+  403 for non-admin; 400 for disabled project.
+- Serializer: type_id accepted, type object returned, default applied on create.
+- Migration: seed runs twice; backfill sets all issues; label migration counts.
+- Query count: list of 50 items does not N+1 on type (assertNumQueries).
+- E2E: create a Bug with type, see the badge in list/board/detail, filter later.
+- Regression: a project with types disabled shows no type UI and still creates
+  items successfully.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Four types seeded in every workspace; all four enabled per project.
+[ ] Every existing issue has a type after backfill (0 nulls in enabled projects).
+[ ] Type appears in create, detail, list, board, table, calendar, timeline.
+[ ] Type management works in workspace and project settings.
+[ ] Type is returned by web and v1 APIs and accepted on create/update.
+[ ] Four `type: bug` label items are migrated and the label link is removed.
+[ ] Disabling types restores exactly the old UI with no data loss.
+[ ] Tests green; migration report attached.
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Projects with is_issue_type_enabled=false: identical behaviour to v1.4.2.
+- Existing v1 clients that omit type_id still work (default applied).
+- Do not rename issues.type_id or change its nullability.
+- Do not copy Commercial-edition type code; this is an independent extension of
+  the CE scaffold.

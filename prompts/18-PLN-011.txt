@@ -1,0 +1,199 @@
+================================================================================
+PROMPT 18 - PLN-011: Cycles (sprints)
+================================================================================
+Priority:      P1 - configure and validate native, with targeted extensions
+Type:          Configuration + validation + small backend features
+Depends on:    PROMPT 09 (capacity fields), PROMPT 03 (workflow states)
+Branch:        feature/PLN-011-cycles
+Estimated:     5-7 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+Cycles are native and complete enough for sprints:
+
+  apps/api/plane/db/models/cycle.py:60
+    Cycle: name, description, start_date, end_date, owned_by, timezone,
+            progress_snapshot, archived_at, sort_order, version, logo_props
+  CycleIssue: many-to-many between Cycle and Issue
+  CycleUserProperties: per-user filters/display for the cycle view
+  UI: apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/cycles/
+  Features: active/upcoming/completed cycles, add/remove items, burndown,
+  progress, carry-over (transfer-issues), cycle filters, cycle analytics.
+
+Gaps to close:
+  - Creating a cycle does not validate overlapping dates with other cycles in
+    the same project.
+  - Cycle start/close is manual; there is no scheduled transition, and the
+    "active cycle" is inferred from dates with no single source of truth.
+  - No capacity (PROMPT 09 adds capacity fields; this prompt wires them into
+    the cycle UI and close flow).
+  - Progress snapshot exists but the UI does not show scope change (items
+    added/removed mid-cycle).
+  - Carry-over is available through transfer-issues but there is no guided
+    close-cycle flow with a preview.
+  - Timezone is stored per cycle but burndown grouping uses UTC in some paths;
+    verify and fix.
+  - No cycle-level permission rules (who can open/close a cycle).
+
+--------------------------------------------------------------------------------
+WORK ITEM 1 - LIFECYCLE
+--------------------------------------------------------------------------------
+Define one source of truth for cycle status:
+
+  status = upcoming  if start_date > now
+           active    if start_date <= now <= end_date and not closed_at
+           completed if closed_at or end_date < now
+
+Add Cycle.closed_at DateTime(null=True), Cycle.closed_by FK User(null).
+Derive status on read; do not store a duplicate status column.
+
+Rules:
+  - At most one active cycle per project. Opening a cycle whose dates overlap
+    an active cycle returns 409 active_cycle_exists with the conflicting cycle.
+  - Overlapping upcoming/completed cycles are allowed for planning, but warn on
+    create/update: 200 with a warning field, or 409 when ?strict=true.
+  - start_date < end_date; max duration 365 days.
+  - Closing a cycle sets closed_at and runs a scope snapshot; it does not
+    change item states by itself.
+  - Reopening requires project admin and clears closed_at.
+
+Scheduled behaviour (Celery beat):
+  - Daily task cycle_status_sync: auto-open cycles whose start_date has passed
+    when Project.auto_start_cycles is true (new field, default false) and
+    auto-close at end_date when Project.auto_close_cycles is true (default
+    false). Default off to avoid surprising state changes in production.
+  - Emit webhooks cycle.started / cycle.completed and in-app notifications to
+    the cycle owner and project leads.
+  - Idempotent: running twice does not duplicate events.
+
+--------------------------------------------------------------------------------
+WORK ITEM 2 - CAPACITY AND SCOPE
+--------------------------------------------------------------------------------
+Use the fields from PROMPT 09 (capacity_points, is_capacity_hard_limit) and add
+if missing:
+  Project.cycle_default_capacity_points PositiveInteger(null)
+
+Behaviour:
+  - Adding items to a cycle sums estimates (Estimate points for the project's
+    estimate scale). No estimate counts as 0 and is reported separately as
+    "n items without estimate".
+  - Over capacity: warn in the UI and return capacity_after with overflow; block
+    only when the hard limit is on.
+  - Scope change: on every add/remove after cycle start, record a row in
+    CycleScopeChange(cycle, issue, action: added|removed, actor, at, reason).
+    New model, small, indexed by cycle and created_at.
+  - Cycle detail shows: committed at start, added during, removed during,
+    completed, remaining. Burndown uses the committed line and shows scope
+    changes as annotations.
+  - progress_snapshot: store a daily snapshot {date, total, completed,
+    points_total, points_completed} written by a daily task. Do not recompute
+    history from current data.
+
+--------------------------------------------------------------------------------
+WORK ITEM 3 - GUIDED CLOSE AND CARRY-OVER
+--------------------------------------------------------------------------------
+Close-cycle dialog:
+  1. Summary: completed, incomplete, cancelled, moved out, items without
+     estimate.
+  2. Choose an action for incomplete items:
+       - move to next cycle (picker of upcoming cycles or create one)
+       - move to backlog (backlog_rank at the bottom, PROMPT 09)
+       - leave in the completed cycle (default)
+  3. Preview the affected list, with select/deselect all.
+  4. Confirm applies the action through the existing transfer-issues and
+     backlog endpoints, per item results, one transaction per batch of 200.
+  5. Items moved to another cycle keep their type and, when the target cycle
+     defines a start state, transition through the workflow engine
+     (PROMPT 03). Never force an invalid transition; skip and report.
+
+Record "Carried over from <cycle>" in the activity feed and do not duplicate the
+IssueCycle history.
+
+--------------------------------------------------------------------------------
+WORK ITEM 4 - PERMISSIONS
+--------------------------------------------------------------------------------
+  - cycle.manage: project admin/member (per PROMPT 01 matrix) can create,
+    edit, open, close, delete cycles.
+  - Developer/QA can add/remove items in an active cycle but cannot create,
+    close or delete cycles unless the capability matrix grants it.
+  - Viewer read-only; Guest only sees cycles containing their own items.
+  - Deleting a cycle with items requires ?force=true and moves items to the
+    backlog without deleting them.
+  - Audit: create, open, close, reopen, delete, capacity change -> actor,
+    timestamp, diff.
+
+--------------------------------------------------------------------------------
+API (existing paths, additive)
+--------------------------------------------------------------------------------
+  GET    .../projects/<pid>/cycles/
+  POST   .../projects/<pid>/cycles/
+  GET/PATCH/DELETE .../projects/<pid>/cycles/<cycle_id>/
+  POST   .../projects/<pid>/cycles/<cycle_id>/close/      body {action, target_cycle_id}
+  POST   .../projects/<pid>/cycles/<cycle_id>/reopen/
+  POST   .../projects/<pid>/cycles/<cycle_id>/transfer-issues/
+  GET    .../projects/<pid>/cycles/<cycle_id>/progress/?group_by=type_id
+  GET    .../projects/<pid>/cycles/<cycle_id>/scope-changes/
+  GET    .../projects/<pid>/cycles/<cycle_id>/burndown/?timezone=
+
+Response additions: status, closed_at, closed_by, capacity {points, hard_limit},
+scope {committed, added, removed, completed, remaining}, items_without_estimate.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+Existing cycles pages:
+  apps/web/core/components/cycles/
+  apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/cycles/
+
+Changes:
+  - Header: status pill (Upcoming/Active/Completed), dates, owner, capacity bar.
+  - Create/edit: date pickers with overlap warning, capacity, timezone defaulted
+    to the project timezone, "auto-start/auto-close" toggles (admin only).
+  - Cycle detail: progress with counts and points, scope-change annotations,
+    burndown with the committed baseline, items grouped by type (PROMPT 06).
+  - Close flow as described above, with a preview table and per-item results.
+  - Upcoming cycles list: "Start now" for admins.
+  - Completed cycles: read-only summary; reopen is in the admin menu.
+  - Empty state: "No active cycle. Create one to plan the next sprint."
+  - Mobile: summary cards and a scrollable item list; the close flow works in
+    one column.
+
+Navigation: cycles already exist in the project sidebar. No new item.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Status derivation across boundary times and timezones.
+- Overlap validation including equal start/end dates.
+- One active cycle per project; opening a second returns 409.
+- Auto-start/auto-close tasks: on/off, idempotent, events emitted once.
+- Capacity: warn vs hard block; items without estimates reported.
+- Scope change: add/remove record rows; burndown annotations match.
+- Close flow: each action, per-item results, failure handling, rollback.
+- Carry-over respects workflow transitions and never forces invalid ones.
+- Permissions for admin/member/developer/qa/viewer/guest.
+- Delete with force moves items to the backlog.
+- E2E: create a cycle, add 5 items, complete 2, close with carry-over, verify
+  the next cycle and burndown.
+- Regression: existing cycle analytics and transfer-issues unchanged.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Only one active cycle per project, with a clear error otherwise.
+[ ] Status is derived correctly and shown everywhere.
+[ ] Capacity warnings and hard limits work.
+[ ] Scope changes are recorded and visible on the burndown.
+[ ] Guided close moves unfinished items without losing type or state validity.
+[ ] Timezone boundaries are correct in burndown and reports.
+[ ] Permissions enforced server-side for every cycle action.
+[ ] Tests green; evidence attached (cycle screenshots, close preview).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not change CycleIssue semantics or the transfer-issues contract.
+- Existing cycles keep their dates, items and progress.
+- Disabled auto-start/auto-close keeps today's manual behaviour exactly.
+- Do not break modules or analytics that read cycle progress.

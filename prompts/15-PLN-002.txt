@@ -1,0 +1,277 @@
+================================================================================
+PROMPT 15 - PLN-002: States, priorities and labels
+================================================================================
+Priority:      P1 - configure and validate native, with targeted fixes
+Type:          Data configuration + validation hardening + small UI work
+Depends on:    PROMPT 03 and 04 (workflow states), PROMPT 02 (types)
+Branch:        feature/PLN-002-states-priorities-labels
+Estimated:     4-6 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+All three concepts exist natively in Plane CE v1.4.2:
+
+States
+  apps/api/plane/db/models/state.py:79
+    name, description, color, slug, sequence (float), group
+    (backlog|unstarted|started|completed|cancelled), is_triage, default
+  Defaults seeded per project on project creation:
+    Backlog(backlog,15000), Todo(unstarted,25000,default),
+    In Progress(started,35000), Done(completed,45000),
+    Cancelled(cancelled,55000)
+  UI: project settings -> States, board columns, state dropdown.
+  API: apps/api/plane/app/views/state/base.py and app/urls/state.py.
+
+Priorities
+  apps/api/plane/db/models/issue.py:107
+    PRIORITY_CHOICES = urgent | high | medium | low | none (default none)
+  Fixed choices, no workspace-level priority table. Filter, sort and display
+  work.
+
+Labels
+  apps/api/plane/db/models/label.py:11
+    Label is WORKSPACE-scoped, optional parent for hierarchy, name, color,
+    sort_order. Linked to issues through IssueLabel.
+  UI: project settings -> Labels (the page that exists at
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/labels/).
+  Labels are workspace-scoped in the model but managed through that project page;
+  the workspace labels API is apps/api/plane/app/urls/workspace.py
+  (workspaces/<slug>/labels/).
+
+Actual data problems in the current deployment:
+  - 12 states and 32 labels are soft-deleted from an earlier configuration
+    attempt (deleted_at is set). They are invisible but still occupy names and
+    confuse imports and CSV exports.
+  - 7 active states and 10 active labels remain, with names that do not match
+    the new per-type workflows (PROMPT 03/04 add New, Code Review, In Testing,
+    Tested, Reopened, Rejected, Blocked, In Review, Ready, Proposed, Approved).
+  - 4 issues still carry a label named `type: bug` because there is no type
+    field yet.
+  - Every project uses the same state list for every work item type, so the
+    board shows states that are meaningless for the selected type.
+  - No duplicate-name protection at the API level; states and labels can be
+    created with names that differ only by case.
+
+This prompt does not rebuild states, priorities or labels. It makes the existing
+data correct, safe and type-aware, and it puts guardrails in place so the
+workflow work from PROMPT 03/04 stays consistent.
+
+--------------------------------------------------------------------------------
+WORK ITEM 1 - STATE DATA CLEANUP
+--------------------------------------------------------------------------------
+1. Audit command (read-only by default):
+     python manage.py audit_states --workspace workspace-test [--project SDLC]
+   Reports per project:
+     - active states by group with item counts
+     - soft-deleted states with item counts (must be zero)
+     - states not referenced by any workflow
+     - states referenced by a workflow but with zero issues
+     - duplicate names (case-insensitive) among active states
+     - items whose state group is completed but completed_at is null
+     - items whose state group is not completed but completed_at is set
+   Output a JSON report to var/reports/state-audit-<date>.json and a human table.
+
+2. Repair command (dry-run by default):
+     python manage.py repair_states --workspace workspace-test \
+         --project SDLC --apply
+   Actions:
+     - Normalise names: trim, collapse whitespace, Title Case for the built-in
+       names only; never rename custom states automatically.
+     - Resolve duplicates by merging into the oldest state in the same group and
+       repointing issues and workflow mappings in one transaction.
+     - Restore completed_at consistency from activity history where possible;
+       otherwise from state group and updated_at, and report every change.
+     - Abort on unknown data rather than guessing.
+   Every action is idempotent and prints a per-action diff.
+
+3. Soft-deleted state purge:
+     python manage.py purge_soft_deleted --model state --workspace workspace-test
+   Preconditions: zero issues, zero WorkflowState rows, zero Draft issues, zero
+   intake issues reference the rows. Refuse otherwise and list the blockers.
+   Never hard-delete a state that appears in IssueActivity history; keep those
+   rows and only clear deleted_at if they are the only reference, or leave them
+   soft-deleted and document it.
+
+4. State defaults:
+   - Exactly one default state per project (State.default=True).
+   - The default must be the initial state of the project's default workflow
+     once workflows exist.
+   - Add a database partial unique index: one default per project where
+     deleted_at is null.
+   - Changing the default in settings updates workflows' initial state only
+     after an explicit confirmation that lists the affected workflows.
+
+5. State API validation (apps/api/plane/app/serializers/state.py,
+   app/views/state/base.py):
+   - Reject case-insensitive duplicate names within a project -> 400
+     duplicate_state_name.
+   - Validate the colour is a hex value or empty.
+   - Sequence is server-managed unless reorder endpoint is used.
+   - Cannot delete a state that has issues -> 409 state_in_use with count.
+     Force delete must move items to the default state and requires a comment.
+   - Cannot delete the last state in a group used by a workflow.
+   - Cannot change a state's group when a workflow uses it without confirming
+     the transition impact; return 409 group_change_affects_workflow with the
+     affected transitions.
+   - Archived/deleted states are never returned in the normal list.
+
+--------------------------------------------------------------------------------
+WORK ITEM 2 - TYPE-AWARE STATE LIST
+--------------------------------------------------------------------------------
+The state list endpoint must support the workflows delivered in PROMPT 03/04:
+
+  GET /api/workspaces/<slug>/projects/<pid>/states/?type_id=<uuid>
+
+- With type_id: return only states mapped to that type's workflow, ordered by
+  WorkflowState.sequence, including is_initial/is_final.
+- Without type_id: return the legacy full project list (unchanged).
+- The project settings -> States page gets a type filter and a "Used by"
+  column listing workflows.
+- Creating a state offers a multi-select "Add to workflows" that creates the
+  WorkflowState mappings (no mapping by default, to avoid polluting other
+  types).
+
+Do not duplicate states per type. One State row can be mapped to several
+workflows; the mapping is the type relationship.
+
+--------------------------------------------------------------------------------
+WORK ITEM 3 - PRIORITIES
+--------------------------------------------------------------------------------
+Priorities are a fixed enum and must stay a fixed enum. Do not add a priority
+table. Work required:
+
+1. Backend validation:
+   - PATCH priority accepts only urgent|high|medium|low|none (already enforced
+     by choices, but confirm at the serializer to return 400 field errors, not
+     500).
+   - Bulk update validates per item and reports invalid values.
+   - Default for new items is "none"; do not silently map none to medium.
+
+2. UI:
+   - Priority selector shows exactly five options with icons and text (not
+     colour only).
+   - Group-by and filter menus list all five plus "No priority".
+   - Sorting by priority uses the semantic order urgent > high > medium > low >
+     none, not alphabetical. Verify the existing order utility and fix it if it
+     sorts by the raw string.
+
+3. Reporting consistency (coordinate with PROMPT 12):
+   - "None" is its own bucket in charts and CSV, never merged into "low".
+
+4. Migration: none.
+
+--------------------------------------------------------------------------------
+WORK ITEM 4 - LABELS
+--------------------------------------------------------------------------------
+Labels stay workspace-scoped so the same label can be used across projects. Work
+required:
+
+1. Audit command:
+     python manage.py audit_labels --workspace workspace-test
+   Reports: active labels with project and issue counts, soft-deleted labels with
+   issue counts, case-insensitive duplicates, labels with no usage after 90
+   days, and labels named like types (`type: bug`, `bug`, `Type/Bug`).
+
+2. Cleanup:
+   - Merge case-insensitive duplicates into the oldest label, repointing
+     IssueLabel rows, preserving colour of the target, idempotent.
+   - Remove the `type: bug` label only after PROMPT 02's backfill is verified
+     (the migration in PROMPT 02 owns that step; this command verifies it is
+     gone and reports leftovers).
+   - Purge only labels with zero IssueLabel rows and zero Draft references.
+
+3. Validation:
+   - Case-insensitive uniqueness per workspace -> 400 duplicate_label_name.
+   - Colour hex validation.
+   - Parent label must belong to the same workspace and must not create a cycle
+     -> 400 label_cycle.
+   - Maximum depth 3; reject deeper with a clear message.
+   - Deleting a parent label does not delete children; children become root
+     labels (current behaviour may cascade - verify and fix if it deletes).
+   - Deleting a label used by issues requires ?force=true, which removes the
+     IssueLabel rows; log counts.
+
+4. UI:
+   - Project settings -> Labels exists and is the management surface. Labels
+     are workspace-scoped, so the same label is available in every project. Do
+     not add a second workspace-level label page unless the product owner asks
+     for one; if you do, reuse the same components and the workspace labels
+     API.
+     Add: usage count, search, sort (name, usage, created), duplicate action,
+     merge action (admin only) with a preview of affected issues.
+   - Label picker in work items: search, recent labels, create-on-the-fly
+     (workspace admin/member only), max 10 labels per item with a clear error.
+
+5. Type vs label separation:
+   - Document in the labels page: "Types classify work; labels are free-form
+     tags. Do not use labels to model Bug/Task/Story/Epic."
+   - Hide the old `type:` labels from the picker once the backfill is complete;
+     keep them readable on historical items until the migration finishes.
+
+--------------------------------------------------------------------------------
+BACKEND TOUCH POINTS
+--------------------------------------------------------------------------------
+  apps/api/plane/db/models/state.py, label.py
+  apps/api/plane/app/serializers/state.py (labels are serialized in
+    app/serializers/issue.py; extend there)
+  apps/api/plane/app/views/state/base.py and app/views/issue/label.py
+  apps/api/plane/app/urls/state.py and app/urls/issue.py (project labels)
+    plus app/urls/workspace.py (workspace labels)
+  apps/api/plane/utils/order_queryset.py          (priority ordering)
+  apps/api/plane/bgtasks/*                        (no new task required)
+  New management commands under apps/api/plane/management/commands/
+
+--------------------------------------------------------------------------------
+FRONTEND TOUCH POINTS
+--------------------------------------------------------------------------------
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/states/
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/labels/
+  apps/web/core/components/states/
+  apps/web/core/components/labels/
+  apps/web/core/components/issues/issue-layouts/properties/ (priority + label pickers)
+
+Navigation: no new sidebar items. All three are configuration and already have
+settings pages.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Audit commands on a fixture with duplicates, soft-deleted rows and orphaned
+  items; assert the exact report.
+- Repair commands: dry-run changes nothing; --apply is idempotent; merge
+  repoints every issue and workflow mapping; a second run is a no-op.
+- Purge refuses when a state or label is referenced.
+- API: duplicate name, invalid colour, delete in use, group change with
+  workflow impact, label cycle, depth limit.
+- Priority: invalid value 400; sort order urgent..none; filtering and grouping.
+- Type-aware state list: with and without type_id; ordering; unmapped states.
+- E2E: rename a state, see it reflected on the board and in existing items;
+  merge two labels and verify issue counts.
+- Regression: the default five states still exist on a fresh project; creating
+  a project still seeds them.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] State and label audits run and are attached as evidence.
+[ ] No duplicate active state/label names remain in SDLC.
+[ ] Soft-deleted rows are either purged safely or documented as retained with
+    reasons.
+[ ] States are mapped to the four workflows and the state list filters by type.
+[ ] Priority sorting is semantic and "none" is its own bucket.
+[ ] Label merge/duplicate flows work and are audited.
+[ ] Default state is unique and aligned with the default workflow's initial
+    state.
+[ ] Tests green.
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not rename the five built-in states on a fresh project; onboarding and
+  default filters depend on those slugs.
+- Do not change the priority enum values or their storage strings.
+- Labels remain workspace-scoped; do not move them to projects.
+- Existing issue filters, saved views and cycles that reference state ids keep
+  working after a rename (ids never change).
+- Do not hard-delete anything that IssueActivity references.

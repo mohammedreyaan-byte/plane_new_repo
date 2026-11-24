@@ -1,0 +1,159 @@
+================================================================================
+PROMPT 19 - PLN-018: Analytics
+================================================================================
+Priority:      P1 - configure and validate native, with additive type support
+Type:          Validation + additive backend dimensions + UI cleanup
+Depends on:    PROMPT 02 (types), PROMPT 06 (type dimension), PROMPT 12 (reports)
+Branch:        feature/PLN-018-analytics
+Estimated:     4-5 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+Existing analytics:
+  Backend: apps/api/plane/app/views/analytic/ (base.py, advance.py,
+           project_analytics.py) and app/urls/analytic.py
+  Tasks:   apps/api/plane/bgtasks/analytic_plot_export.py
+  Models:  apps/api/plane/db/models/analytic.py (AnalyticView, saved plots,
+           default analytics, advance analytics)
+  UI:      apps/web/app/(all)/[workspaceSlug]/(projects)/analytics/
+           apps/web/core/components/analytics/
+  Features: work item trends, state/priority/assignee breakdowns, cycle and
+  module progress, CSV/PNG export, saved analytics views.
+
+Gaps to close:
+  - No type dimension (until PROMPT 06 adds it to the API).
+  - The analytics page shows project data across all types without a type
+    selector, so Bug-specific trends are impossible.
+  - Saved analytics views do not persist a type filter.
+  - Some charts count archived and cancelled items inconsistently with the
+    reports in PROMPT 12.
+  - Export is per chart; there is no "export all" for a saved analytics view.
+  - No empty state explanation when a filter yields zero; the chart area is
+    blank.
+
+--------------------------------------------------------------------------------
+WORK ITEM 1 - METRIC DEFINITIONS (single source of truth)
+--------------------------------------------------------------------------------
+Create apps/api/plane/utils/analytics/metrics.py and use it for both analytics
+and reports (PROMPT 12):
+
+  open          state.group in (backlog, unstarted, started)
+                and archived_at is null and deleted_at is null and not draft
+  resolved      state.group == completed
+  cancelled     state.group == cancelled
+  created       created_at in range
+  resolved_at   completed_at in range
+  reopened      state.group != completed and completed_at was set before; use
+                activity history, do not guess
+
+Time bucket: day/week/month in the project or cycle timezone; the timezone is
+returned in meta so the UI can display it.
+
+Every chart must state its definition in a tooltip or info icon. If two charts
+disagree, that is a bug in this prompt.
+
+--------------------------------------------------------------------------------
+WORK ITEM 2 - TYPE DIMENSION
+--------------------------------------------------------------------------------
+  - Add type_id/type_id__in filters to every analytics endpoint.
+  - Add group_by=type_id and a type dimension in the response.
+  - Summary tiles: total open, open bugs, resolved this period, overdue, by
+    type breakdown (additive).
+  - Type filter persists in the URL and in saved analytics views.
+  - If types are disabled for the project, hide the selector and fall back to
+    the legacy label-based definition, with a visible note.
+  - Query set must select_related("type") and not N+1.
+
+--------------------------------------------------------------------------------
+WORK ITEM 3 - CORRECTNESS FIXES
+--------------------------------------------------------------------------------
+Audit each existing chart against the definitions and fix mismatches:
+  - Archived items must be excluded from "open" but included in an explicit
+    "archived" bucket when the chart shows totals.
+  - Cancelled items must not count as resolved in trend lines.
+  - Reopened items must leave "resolved" on the date of reopening.
+  - Cycle progress must use the cycle's items, not a date-range approximation.
+  - Module progress must share the helper in PROMPT 11.
+  - Assignee breakdown: unassigned is a bucket; deleted users show "Former
+    member" and are not dropped from historical data.
+  - Priority ordering in charts is urgent..none, not alphabetical.
+  - Percentages always sum to 100 or show "other"; never round to 101.
+
+Add assertions in tests that compare each chart's total with a direct SQL count
+for a fixed fixture.
+
+--------------------------------------------------------------------------------
+WORK ITEM 4 - UI AND EXPORT
+--------------------------------------------------------------------------------
+  - Header: date range (presets 7/30/90 days, this cycle, this quarter, custom,
+    max 2 years), type selector, project selector when the page is workspace
+    scope, refresh.
+  - Tiles: open, resolved, created, cancelled, overdue, avg time to resolve.
+  - Charts: trends, state breakdown, priority, assignee, type, cycle, module.
+  - Every chart has a table equivalent (toggle) and a text summary for screen
+    readers.
+  - Empty state: "No data for this range" with clear filters.
+  - Loading: skeletons that preserve layout; do not flash empty charts.
+  - Error: retry without losing filters.
+  - Export: CSV and PNG per chart, plus "Export all" for a saved analytics
+    view; CSV matches the table, escapes formulas, includes filters and
+    timezone in a header block.
+  - Saved analytics views: name, filters (including type), charts, public or
+    private, owner. Reuse the View permission model from PROMPT 17.
+  - Mobile: tiles stack, charts scroll, table view is the default below 768px.
+
+Navigation: analytics already exists in the workspace/project navigation. Do
+not add a second entry; the Reports page from PROMPT 12 links to it and vice
+versa.
+
+--------------------------------------------------------------------------------
+API (additive)
+--------------------------------------------------------------------------------
+  GET /api/workspaces/<slug>/projects/<pid>/analytics/?type=work-items&type_id=...
+  GET .../analytics/?type=work-items&group_by=type_id
+  GET .../analytics/export/?chart=...&format=csv|png&filters...
+  GET .../analytics/views/  (workspace/project saved views)
+  POST/PATCH/DELETE .../analytics/views/<id>/
+
+Return meta with {timezone, date_from, date_to, filters, definitions_version}
+so a saved chart can be reproduced exactly.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Metric definitions on a fixture with open, resolved, cancelled, archived,
+  deleted, draft, reopened items.
+- Boundary: item created at 23:59 local counted in the correct day.
+- Type filter and grouping across all charts.
+- Saved analytics view reproduces the same numbers for another user.
+- CSV/PNG match the screen; formula escaping.
+- Cross-check every chart total against a direct query.
+- Empty state and error state.
+- Permissions: Viewer can view; export per capability (report.export).
+- Regression: existing analytics URLs and saved charts still work; charts
+  without type filters show the same numbers as before for a project with
+  types disabled.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] All charts use the shared metric definitions.
+[ ] Type dimension works in tiles, charts and exports.
+[ ] Cancelled and archived items are handled consistently everywhere.
+[ ] Saved analytics views persist filters and reproduce results.
+[ ] Export all works and matches the screen.
+[ ] Timezone is correct at day boundaries.
+[ ] Empty states explain why there is no data.
+[ ] Tests green; evidence attached (before/after counts).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not remove existing charts or endpoints.
+- Do not change the meaning of existing metrics without a documented bug note;
+  if a number changes because it was wrong, record the old and new values in
+  the PR.
+- Existing saved analytics views keep loading.
+- Analytics queries must not slow the work item list; use the existing cache
+  and add indexes only where measured.

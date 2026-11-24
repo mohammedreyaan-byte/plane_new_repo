@@ -1,0 +1,259 @@
+================================================================================
+PROMPT 01 - PLN-014: Roles - Admin / Member / Developer / QA / Viewer / Guest
+================================================================================
+Priority:      P0 - build from scratch (foundation for PLN-005, PLN-013, PLN-022)
+Type:          Backend + frontend build
+Depends on:    PROMPT 22 (fork and CI)
+Branch:        feature/PLN-014-roles-and-members
+Estimated:     8-10 dev days (excluding inviting the 15 real users)
+
+--------------------------------------------------------------------------------
+CONTEXT AND VERIFIED CODE FACTS
+--------------------------------------------------------------------------------
+Plane CE v1.4.2 has only three fixed integer roles:
+
+  apps/api/plane/db/models/workspace.py:19
+  apps/api/plane/db/models/project.py:21
+      ROLE_CHOICES = ((20, "Admin"), (15, "Member"), (5, "Guest"))
+
+The integer is stored on:
+  WorkspaceMember.role          workspace.py:205
+  WorkspaceMemberInvite.role    workspace.py:241
+  ProjectMember.role            project.py:219
+  ProjectMemberInvite.role      project.py:198
+
+Frontend permission checks use EUserPermissions from @plane/constants and compare
+integer levels throughout apps/web/core/components and apps/web/core/hooks.
+Only one workspace member exists, so role behaviour has never been exercised.
+
+Do NOT replace the integer column in one step. Add a role reference beside it,
+backfill, and migrate checks gradually. A big-bang rewrite will break every
+existing permission check and is not acceptable.
+
+--------------------------------------------------------------------------------
+OBJECTIVE
+--------------------------------------------------------------------------------
+Add first-class roles with a capability matrix, expose role management in the
+UI, enforce the new roles on the server, and make it possible to assign the
+15 team members Developer, QA or Viewer without losing Admin/Member/Guest
+compatibility.
+
+Roles to seed (system roles, not editable):
+
+  key        name        legacy_id  purpose
+  admin      Admin       20         full workspace and project control
+  member     Member      15         legacy full contributor (compatibility)
+  developer  Developer   12         builds and edits work items
+  qa         QA          11         tests and closes verified work
+  viewer     Viewer      2          read-only
+  guest      Guest       5          limited, own-items-only access
+
+--------------------------------------------------------------------------------
+DATA MODEL
+--------------------------------------------------------------------------------
+1. New model apps/api/plane/db/models/role.py
+
+   class Role(BaseModel):
+       workspace   FK Workspace, null=True, blank=True, related_name="roles"
+                   (null = system role available to every workspace)
+       key         SlugField(max_length=50)          # admin, developer, qa...
+       name        CharField(max_length=100)
+       description TextField(blank=True)
+       legacy_id   PositiveSmallIntegerField(null=True, unique=True)
+       level       PositiveSmallIntegerField(default=0)   # ordering only
+       capabilities JSONField(default=list)          # capability strings
+       is_system   BooleanField(default=True)
+       is_active   BooleanField(default=True)
+
+   Constraints:
+     unique (workspace, key) where deleted_at is null
+     unique (key) where workspace is null and deleted_at is null
+     unique legacy_id
+
+2. Add nullable role_ref FK (Role, SET_NULL, related_name="+") to:
+     WorkspaceMember, WorkspaceMemberInvite, ProjectMember, ProjectMemberInvite.
+   Keep the integer role column. On save, if role_ref is set, keep role equal to
+   role_ref.legacy_id so old code still works.
+
+3. Seed migration (data migration, idempotent):
+   system roles with these capability lists:
+
+   admin:
+     workspace.manage, member.manage, project.manage, project.create,
+     type.manage, workflow.manage, integration.manage, service_token.manage,
+     report.manage, report.view, report.export, work_item.view, work_item.create,
+     work_item.edit, work_item.delete, work_item.assign, work_item.transition,
+     comment.create, comment.delete, attachment.create, view.manage,
+     cycle.manage, module.manage, notification.manage, webhook.manage
+   member (legacy): everything admin has except member.manage, type.manage,
+     workflow.manage, integration.manage, service_token.manage,
+     notification.manage
+   developer:
+     work_item.view, work_item.create, work_item.edit, work_item.assign,
+     work_item.transition, comment.create, attachment.create, view.manage,
+     report.view, report.export
+     (no project.manage, no cycle.manage, no type/workflow management)
+   qa:
+     work_item.view, work_item.create, work_item.edit, work_item.assign,
+     work_item.transition, comment.create, attachment.create, view.manage,
+     report.view, report.export
+   viewer:
+     work_item.view, comment.read, report.view
+   guest:
+     work_item.view (own only), work_item.edit (own only), comment.create (own)
+
+   The exact matrix is in Requirements.docx section 24; treat it as the source
+   of truth and keep the JSON lists identical to that table.
+
+4. Migration order (separate files):
+   0xxx_add_role_model
+   0xxx_add_role_ref_fields
+   0xxx_seed_system_roles
+   0xxx_backfill_role_refs
+   Backfill maps 20->admin, 15->member, 5->guest and must be idempotent and
+   reversible (reverse sets role_ref NULL; never deletes roles).
+
+--------------------------------------------------------------------------------
+CAPABILITY SERVICE
+--------------------------------------------------------------------------------
+Create apps/api/plane/utils/permissions/capabilities.py:
+
+  SYSTEM_ROLE_CAPABILITIES  fallback constants
+  get_role_capabilities(role, workspace=None) -> set[str]
+      role_ref.capabilities if present, else fallback by legacy id
+  get_user_workspace_role(user, workspace) -> Role | None
+  get_user_project_role(user, workspace, project) -> Role | None
+      project membership wins; workspace admin always resolves to admin
+  has_capability(user, workspace, capability, project=None) -> bool
+  require_capability(...) raising DRF PermissionDenied with code
+  ProjectCapabilityPermission(BasePermission)
+      reads `required_capability` and `required_project_kwarg` from the view
+  @capability_required("work_item.edit") decorator for function views
+
+Rules:
+  - Workspace admin implicitly has every capability on every project.
+  - Project role is authoritative for project-scoped capabilities.
+  - Guest own-only checks are object-level; never rely on the capability alone.
+  - Cache role capabilities per request only. Do not cache across users.
+  - Existing integer checks must keep working. Do not remove ROLE_CHOICES.
+
+Add apps/api/plane/tests/unit/test_capabilities.py covering the full matrix
+(role x capability) and precedence (project role vs workspace role).
+
+--------------------------------------------------------------------------------
+BACKEND API
+--------------------------------------------------------------------------------
+Workspace roles and membership:
+
+  GET    /api/workspaces/<slug>/roles/                  list roles + capabilities
+  GET    /api/workspaces/<slug>/members/                include role_ref detail
+  POST   /api/workspaces/<slug>/members/                invite one member
+  POST   /api/workspaces/<slug>/members/bulk-invite/    list of emails + role_key
+  PATCH  /api/workspaces/<slug>/members/<member_id>/    change role / status
+  DELETE /api/workspaces/<slug>/members/<member_id>/    remove
+  GET    /api/workspaces/<slug>/members/me/              current membership
+
+Project membership:
+
+  GET    /api/workspaces/<slug>/projects/<pid>/members/
+  POST   /api/workspaces/<slug>/projects/<pid>/members/
+  PATCH  /api/workspaces/<slug>/projects/<pid>/members/<member_id>/
+  DELETE /api/workspaces/<slug>/projects/<pid>/members/<member_id>/
+
+Validation and protection:
+  - Accept either role (legacy integer) or role_key. Reject both if they
+    disagree. Unknown role_key -> 400 {"role_key": ["Invalid role."]}.
+  - Only workspace admins can invite/change/remove workspace roles.
+  - Only workspace or project admins can change project roles.
+  - Refuse to remove or demote the last workspace admin (409
+    last_admin_protected). Refuse to remove yourself if you are the last admin.
+  - Bulk invite: validate every email, dedupe, report per-email result
+    {email, status: invited|already_member|invalid, member_id}.
+  - Invitations keep working through the existing email/onboarding flow.
+    Do not create a second invitation system.
+  - Every role change writes an activity/audit row: actor, target, old role,
+    new role, timestamp.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+Workspace settings -> Members (existing route):
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/(workspace)/members/
+  apps/web/core/components/workspace/members/  (reuse the existing table)
+
+  Changes:
+  - Role dropdown lists all roles from GET /roles/, not a hard-coded three.
+  - Show role name and description; Admin/Member/Guest keep their meaning.
+  - Add "Invite members" bulk dialog: textarea or CSV of emails, role selector,
+    preview of valid/invalid addresses, per-email result after submit.
+  - Add filters: role, active/pending.
+  - Disable removing/demoting the last admin with an explanatory tooltip.
+  - Pending invitations show the invited role and a resend action.
+
+Project settings -> Members:
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/members/
+  - Same role dropdown, scoped to project roles.
+  - Explain that project role overrides workspace role for project actions.
+  - Bulk add existing workspace members (do not re-invite by email).
+
+Update packages/constants:
+  - Add ERoles key map and EUserPermissions entries only if required by existing
+    comparisons. Do not renumber the existing enum.
+  - Provide a helper roleKeyToLegacyId() for compatibility.
+  - Any new UI check must call useUserPermissions().allowPermissions with a
+    capability, not a raw integer, where the hook supports it.
+
+Navigation: no new sidebar item. This lives in Settings -> Members.
+
+--------------------------------------------------------------------------------
+15 MEMBERS
+--------------------------------------------------------------------------------
+Provide a management command:
+
+  python manage.py seed_team_members --workspace workspace-test \
+      --file team.csv
+
+CSV columns: email, first_name, last_name, workspace_role, project_role.
+It must:
+  - create or reuse users,
+  - add workspace membership with the given role,
+  - add project membership for SDLC with the given project role,
+  - never duplicate memberships,
+  - print a summary and be safe to re-run.
+Seed a sample team.csv with 15 rows (admin, 3 developers, 2 QA, 1 viewer,
+8 members) for staging. Real email addresses are supplied by the product owner;
+do not invent company addresses in production.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Unit: capability matrix for all six roles.
+- Unit: project role overrides workspace role; workspace admin overrides all.
+- API: invite, bulk invite (valid/invalid/duplicate), role change, removal.
+- API: last-admin protection.
+- API: non-admin receives 403 for member management.
+- Migration: role_ref backfill from 20/15/5; run twice.
+- E2E: admin invites a developer, developer logs in, cannot open workspace
+  settings -> Members.
+- Regression: existing Member can still do everything it could before.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Six system roles exist and are returned by the API with capabilities.
+[ ] Developer, QA and Viewer can be assigned in workspace and project settings.
+[ ] Legacy Admin/Member/Guest integers still work and are backfilled.
+[ ] Role changes take effect on the next request (no stale cache).
+[ ] Last admin cannot be removed or demoted.
+[ ] 15 members can be created and assigned with the management command.
+[ ] No UI permission decision relies only on a hidden button.
+[ ] Tests green; evidence attached (role matrix screenshot, API responses).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Existing invitations, onboarding and member removal keep working.
+- Existing integer comparisons in views continue to pass for Admin/Member/Guest.
+- Do not change the default role for new invitees (Guest stays the default
+  unless the invite explicitly sets a role).
+- Do not break the space app or public endpoints that read membership.

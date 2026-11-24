@@ -1,0 +1,149 @@
+================================================================================
+PROMPT 11 - PLN-012: Module <-> Epic linking and progress
+================================================================================
+Priority:      P1 - rebuild/extend existing modules
+Type:          Backend model + API + frontend
+Depends on:    PROMPT 02 (Epic type), PROMPT 03 (workflows for completion)
+Branch:        feature/PLN-012-module-epic-link
+Estimated:     6-8 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+Modules exist and group work items (4 in SDLC) with progress:
+  apps/api/plane/db/models/module.py:67
+  apps/api/plane/app/views/module/
+  apps/web/core/components/modules/
+
+Missing: any link to an Epic work item, no roll-up from Epic children, no
+progress mode. The type layer now makes an Epic possible.
+
+--------------------------------------------------------------------------------
+DATA MODEL
+--------------------------------------------------------------------------------
+1. Module additions:
+     epic = FK("db.Issue", null=True, blank=True, on_delete=SET_NULL,
+               related_name="epic_modules")
+     epic_linked_at = DateTime(null=True)
+     epic_linked_by = FK(User, null=True, on_delete=SET_NULL)
+     progress_mode = CharField(20, choices items|epic_children|manual,
+                               default="items")
+     manual_progress = PositiveSmallInteger(null=True)  # 0-100
+     manual_progress_note = TextField(blank=True)
+
+2. Constraints/validation:
+   - The linked issue must be in the same project, type.is_epic=true, not
+     archived/deleted.
+   - One Epic to one active Module per project (partial unique index on
+     (project, epic) where deleted_at is null). This is the final decision:
+     do not build a many-to-many join table in this prompt.
+   - A Module may contain the Epic itself and/or its child Stories/Tasks/Bugs.
+   - Unlinking sets epic=NULL, keeps items and progress.
+
+3. Progress rules:
+   items (default):
+     completed ModuleIssue / total ModuleIssue, excluding cancelled and archived.
+     Show count and points when estimates exist.
+   epic_children:
+     collect the linked Epic's descendants (Story/Task/Bug, configurable depth,
+     default 2), completed / total, excluding cancelled/archived.
+     Exclude the Epic itself from the denominator to avoid double counting.
+   manual:
+     manual_progress with a required note; admin-only.
+   - Compute on read; cache 60 seconds; invalidate on item/state/module changes.
+   - Use one shared completion helper with cycle progress so definitions match.
+
+--------------------------------------------------------------------------------
+API
+--------------------------------------------------------------------------------
+  GET    /api/workspaces/<slug>/projects/<pid>/modules/
+  POST   .../modules/                          optional epic_id
+  GET    .../modules/<mid>/
+  PATCH  .../modules/<mid>/                    name, dates, status, progress_mode
+  DELETE .../modules/<mid>/
+  POST   .../modules/<mid>/link-epic/          {"epic_id": "..."}
+  DELETE .../modules/<mid>/link-epic/
+  GET    .../modules/<mid>/progress/           breakdown by type/state
+  POST   .../modules/<mid>/issues/             bulk add/remove
+  POST   .../modules/from-epic/                {"epic_id": "...", "name": "..."}
+
+Response additions:
+  epic_id, epic {id, name, sequence_id, state_id, state_name, type_id},
+  progress {completed, total, percentage, points_completed, points_total,
+            mode, as_of},
+  children_summary {bug: n, story: n, task: n}
+
+Validation errors:
+  400 epic_required            linked item is not an Epic
+  400 epic_wrong_project
+  409 epic_already_linked      another module has it
+  400 epic_archived
+  400 manual_progress_required
+
+Permissions:
+  - Create/link/unlink: project admin/member (module.manage).
+  - Add/remove items: project member with work_item.edit.
+  - Developer/QA can add items but not change the Epic link.
+  - Viewer read-only.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+Files:
+  apps/web/core/components/modules/form.tsx (create/edit)
+  apps/web/core/components/modules/module-peek-overview.tsx
+  apps/web/core/components/modules/progress-stats.tsx
+  apps/web/core/components/modules/links/ (module links)
+  apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/modules/
+
+Changes:
+  - Create/edit modal: "Linked Epic" selector filtered to Epic-type items in the
+    project, searchable by ID/title, shows state and owner. Empty state explains
+    that an Epic type must exist.
+  - Module detail header: Epic card with link, state badge, progress ring.
+  - Module list: progress bar, item count, epic badge, target date, status.
+  - Progress panel: breakdown by type and state; warning if the Epic has no
+    children; link to add child work items.
+  - "Create module from Epic" action on the Epic detail page: prefills name and
+    description, creates and links atomically.
+  - Epic detail: "Modules" property showing the linked module with unlink for
+    admins.
+  - Empty state: "Link an Epic or add work items to start tracking progress."
+
+Navigation: no new sidebar item; modules already exist. Add the action inside
+the existing module pages and the Epic detail.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Model/serializer: non-Epic rejected, wrong project rejected, duplicate link
+  409, archived Epic rejected.
+- Progress: count, estimate, cancelled, archived, nested children, Epic in the
+  module excluded from the denominator.
+- Manual progress requires a note; admin-only.
+- API: link/unlink/create-from-epic; unlink keeps items.
+- E2E: create Epic, create Module from Epic, add two Stories, complete one,
+  verify 50%.
+- Permission tests for each role.
+- Performance: 500 children, progress < 300 ms with cache.
+- Regression: existing modules with no Epic show item-based progress.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] An Epic can be linked to a Module; the link shows on both.
+[ ] Non-Epic and cross-project links are rejected.
+[ ] Module progress matches a manual count in both count and estimate modes.
+[ ] Unlink does not delete the Module or its items.
+[ ] Create module from Epic is atomic.
+[ ] Progress updates after a child is completed.
+[ ] One-to-one rule enforced (or the join-table decision is documented).
+[ ] Tests green; evidence attached (module progress screenshot).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Existing modules keep working without an Epic.
+- Module issue add/remove endpoints keep their current payloads.
+- Archived modules are excluded from lists but keep progress history.
+- Do not change cycle progress definitions; share the helper instead.

@@ -1,0 +1,201 @@
+================================================================================
+PROMPT 04 - PLN-006: Task, Story and Epic workflows
+================================================================================
+Priority:      P0 - build from scratch (after the engine exists)
+Type:          Backend seed + frontend builder support
+Depends on:    PROMPT 03 (workflow engine)
+Branch:        feature/PLN-006-task-story-epic-workflows
+Estimated:     6-8 dev days
+
+--------------------------------------------------------------------------------
+CONTEXT
+--------------------------------------------------------------------------------
+PROMPT 03 delivers one engine and the Bug workflow. This prompt adds the other
+three type workflows, cloning/reset/health, hierarchy rules and the UI needed to
+manage four workflows without duplicating components.
+
+--------------------------------------------------------------------------------
+WORKFLOWS TO SEED
+--------------------------------------------------------------------------------
+Task:
+  Backlog      backlog    15000  initial
+  Todo         unstarted  25000
+  In Progress  started    35000
+  Blocked      started    45000
+  Done         completed  55000  final
+  Cancelled    cancelled  65000  final
+
+  Transitions:
+    Backlog -> Todo            []
+    Backlog -> Cancelled       ["admin","member"]
+    Todo -> In Progress        []
+    Todo -> Blocked            []
+    Todo -> Cancelled          ["admin","member"]
+    In Progress -> Blocked     []
+    In Progress -> Done        []
+    In Progress -> Cancelled   ["admin","member"]
+    Blocked -> In Progress     []
+    Blocked -> Cancelled       ["admin","member"]
+    Done -> In Progress        ["admin","member"]      (reopen)
+    Cancelled -> Backlog       ["admin","member"]
+
+Story:
+  Backlog      backlog    15000  initial
+  Ready        unstarted  25000
+  In Progress  started    35000
+  In Review    started    45000
+  Done         completed  55000  final
+  Cancelled    cancelled  65000  final
+
+  Transitions:
+    Backlog -> Ready             []
+    Backlog -> Cancelled         ["admin","member"]
+    Ready -> In Progress         []
+    Ready -> Cancelled           ["admin","member"]
+    In Progress -> In Review     []
+    In Progress -> Done          ["developer","qa","admin"]
+    In Progress -> Cancelled     ["admin","member"]
+    In Review -> In Progress     []
+    In Review -> Done            ["developer","qa","admin"]
+    In Review -> Cancelled       ["admin","member"]
+    Done -> In Progress          ["admin","member"]
+    Cancelled -> Backlog         ["admin","member"]
+
+Epic:
+  Proposed     backlog    15000  initial
+  Approved     unstarted  25000
+  In Progress  started    35000
+  Done         completed  55000  final
+  Cancelled    cancelled  65000  final
+
+  Transitions:
+    Proposed -> Approved         ["qa","admin"]
+    Proposed -> Cancelled        ["admin","member"]
+    Approved -> In Progress      []
+    Approved -> Cancelled        ["admin","member"]
+    In Progress -> Done          ["qa","admin"]
+    In Progress -> Cancelled     ["admin","member"]
+    Done -> In Progress          ["admin","member"]
+    Cancelled -> Proposed        ["admin","member"]
+
+Seed with the same idempotent pattern as the Bug workflow. Reuse states by
+(project, name). If a state name already exists with a different group, keep the
+existing group and log a warning; do not silently change it.
+
+--------------------------------------------------------------------------------
+BACKEND WORK
+--------------------------------------------------------------------------------
+1. Clone:
+   POST .../workflows/<id>/clone/
+   body {"name": "Bug copy", "issue_type_id": "..."}
+   Copies workflow states and transitions in one transaction. The target type
+   must not already have a default workflow unless ?replace=true; replace is
+   admin-only and archives the old workflow (do not delete rows that activities
+   reference).
+
+2. Reset:
+   POST .../workflows/<id>/reset/
+   Restores the built-in matrix for that type. Requires the workflow to be
+   identified as a system default (issue_type key in bug/task/story/epic).
+   Returns a diff summary {added, updated, removed}. Items in removed states are
+   moved to the initial state only with ?force=true; otherwise return 409 with
+   the affected item count.
+
+3. Health:
+   GET .../workflows/health/?project_id=...
+   Checks:
+     - every enabled type has an active default workflow
+     - exactly one initial state
+     - at least one final state
+     - no state unreachable from the initial state
+     - no duplicate default workflow per type
+     - no item in a state not mapped to its type's workflow
+     - no transition referencing a state outside the workflow
+   Response: {"healthy": bool, "issues": [{code, type_id, workflow_id, detail}]}
+
+4. Parent/child rules (hierarchy):
+   - Epic can be a parent of Story, Task or Bug.
+   - Story can be a parent of Task or Bug.
+   - Task and Bug cannot be parents of a Story or Epic.
+   - Enforce on create/update of parent_id:
+       400 invalid_parent_type with a human-readable explanation.
+   - A cycle can contain an Epic or its children; keep the current behaviour.
+     Do not invent a restriction unless the product owner asks.
+   - Completing an Epic (moving to Done) while it has open children:
+       default: 400 epic_has_open_children {count, sample_ids}
+       with ?force=true and capability work_item.edit: allowed; write an
+       activity row and require a comment.
+   - Deleting a parent does not delete children; children become unparented and
+     keep their type/state.
+
+5. Type change reset:
+   When PROMPT 02's type change runs and the new type has a workflow, move the
+   item to the new workflow's initial state inside the same transaction and
+   record the activity. If the new type has no workflow, keep the state.
+
+6. State API:
+   GET /projects/<pid>/states/?type_id=<uuid>
+   returns only the states mapped to that type's workflow, ordered by
+   WorkflowState.sequence, plus {workflow_id, is_initial, is_final}.
+   Without type_id, return the legacy full list (backward compatibility).
+
+7. Workflow import/export:
+   GET .../workflows/<id>/export/ -> JSON {name, issue_type_key, states,
+     transitions}
+   POST .../workflows/import/ with the same shape; validate and create.
+   Useful for promoting a workflow between projects; no secrets involved.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+- The builder from PROMPT 03 already lists workflows. Add a type switcher and a
+  "Create from template" action for Task, Story and Epic.
+- Clone dialog: name + target type + replace warning.
+- Reset dialog: show the diff, require confirmation, show items affected.
+- Health panel: grouped by type, each issue links to the builder with the
+  offending state selected.
+- Project settings -> States page:
+  apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/states/
+  Add a type filter above the state list and a column showing which workflows
+  use each state. Creating a state offers "add to workflow(s)".
+- Work item create/detail:
+  - State options come from the type-aware endpoint.
+  - Changing type in the detail resets the state; confirm before saving.
+- Epic detail:
+  - Show a hierarchy hint under Parent: "Epics can contain Stories, Tasks and
+    Bugs."
+  - Completing with open children shows the blocking dialog with a link to the
+    children list.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Seed test for all four workflows: counts, initial/final, matrix.
+- Clone test: independent rows; editing the clone does not change the source.
+- Reset test: restores defaults; force moves items; non-force returns 409.
+- Health test: each issue code is produced by a deliberately broken workflow.
+- Hierarchy matrix test: allowed and denied parent/child combinations.
+- Epic completion test: blocked with children, allowed with force + comment.
+- State endpoint test: type filter returns only mapped states.
+- E2E: create one item of each type and walk its full workflow.
+- Regression: Bug workflow unchanged after adding the other three.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Task, Story and Epic workflows exist and are the defaults for their types.
+[ ] Each type shows only its own states in create/detail/board.
+[ ] Transitions match the matrices above and are tested.
+[ ] Clone, reset and health work and cannot orphan items.
+[ ] Hierarchy rules enforced in the API with clear errors.
+[ ] Epic completion guard works.
+[ ] Type change resets state safely and is audited.
+[ ] Tests green; evidence attached (four workflow screenshots).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not change the Bug workflow from PROMPT 03.
+- Existing states and items keep their state; only mappings are added.
+- Projects with workflows disabled keep the legacy free state list.
+- Import/export must reject unknown fields rather than silently dropping them.

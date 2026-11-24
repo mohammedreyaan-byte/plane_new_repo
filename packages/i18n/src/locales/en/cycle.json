@@ -1,0 +1,41 @@
+{
+  "active_cycle": {
+    "empty_state": {
+      "progress": {
+        "title": "Add issues to the sprint to view it's progress"
+      },
+      "chart": {
+        "title": "Add issues to the sprint to view the burndown chart."
+      },
+      "priority_issue": {
+        "title": "Observe high priority issues tackled in the sprint at a glance."
+      },
+      "assignee": {
+        "title": "Add assignees to issues to see a breakdown of work by assignees."
+      },
+      "label": {
+        "title": "Add labels to issues to see the breakdown of work by labels."
+      }
+    }
+  },
+  "cycle": {
+    "label": "{count, plural, one {Sprint} other {Sprints}}",
+    "no_cycle": "No sprint"
+  },
+  "active_cycle_analytics": {
+    "empty_state": {
+      "progress": {
+        "title": "Add issues to the sprint to view it's\n progress"
+      },
+      "priority": {
+        "title": "Observe high priority issues tackled in\n the sprint at a glance."
+      },
+      "assignee": {
+        "title": "Add assignees to issues to see a\n breakdown of work by assignees."
+      },
+      "label": {
+        "title": "Add labels to issues to see the\n breakdown of work by labels."
+      }
+    }
+  }
+}

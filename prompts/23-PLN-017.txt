@@ -1,0 +1,179 @@
+================================================================================
+PROMPT 23 - PLN-017: Notification delivery test through the mail relay
+================================================================================
+Priority:      P0 - delivery validation (blocks go-live and PROMPT 14 sign-off)
+Type:          Infrastructure configuration + verification + evidence pack
+Depends on:    PROMPT 14 (notification events), SMTP credentials from infra
+Branch:        chore/PLN-017-email-delivery-test
+Estimated:     2-3 days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+In the running deployment:
+  - SMTP is disabled. No application email leaves the stack.
+  - The instance admin has an Email settings page at /god-mode/email/ with host,
+    port, TLS/SSL, username, password, sender name, sender email and a
+    "Send test email" action.
+  - Django email settings come from the instance configuration (see
+    apps/api/plane/license/utils/instance_value.py -> get_email_configuration,
+    and the admin app's email form).
+  - Invitations, password resets, magic links, webhook deactivation emails and
+    notification emails all depend on this configuration.
+  - In-app notifications work; email delivery has never been exercised.
+
+This prompt configures a real relay, proves every email path works end to end,
+and produces the evidence required to sign off PLN-016 and go-live.
+
+--------------------------------------------------------------------------------
+PREREQUISITES FROM INFRA
+--------------------------------------------------------------------------------
+Obtain from the infrastructure owner:
+  - SMTP host, port and encryption mode (587 STARTTLS recommended, 465 SSL,
+    25 only inside the network).
+  - Username and password or app password (never a personal mailbox password).
+  - Sender address on a dedicated subdomain, e.g. notifications@mail.example.com
+    or plane@notifications.example.com.
+  - Sender display name: "SDLC Delivery Platform".
+  - Whether the relay allows a custom envelope sender and Return-Path.
+  - SPF, DKIM and DMARC records for the sending domain (coordinate with
+    PROMPT 24). The app only sets From; deliverability is an infrastructure
+    concern.
+
+Do not use a free personal mailbox as the production sender. For staging, use a
+test relay (MailHog/Mailpit inside the network or a provider sandbox).
+
+--------------------------------------------------------------------------------
+CONFIGURATION
+--------------------------------------------------------------------------------
+1. Staging first:
+   - Deploy Mailpit (or MailHog) as a compose service, not exposed publicly.
+   - Point the instance email settings at mailpit:1025, no auth, no TLS, and
+     verify the UI and the API both send.
+   - Confirm the admin "Send test email" returns success and the message appears
+     in the Mailpit UI with the correct From, Subject and body.
+
+2. Production relay:
+   - Set the SMTP values through the instance admin (database-backed instance
+     configuration), not by hard-coding settings.py.
+   - If an environment fallback exists, keep it aligned; one source of truth.
+   - Store the password only in the instance configuration (encrypted at rest
+     where the schema supports it) and in the deployment secret store. Never in
+     git, tickets, chat or screenshots.
+   - Set the default From address and a Reply-To that a human monitors.
+   - Set EMAIL_TIMEOUT to 10 seconds so a dead relay cannot hang workers.
+   - Log SMTP responses (code and enhanced status) without logging credentials
+     or full message bodies.
+
+3. Sender authentication:
+   - SPF: include the relay's sending hosts for the subdomain.
+   - DKIM: enable signing at the relay and publish the selector.
+   - DMARC: start with p=none and rua reporting, then move to quarantine after
+     two weeks of clean reports.
+   - Use a dedicated subdomain so a reputation problem cannot affect the
+     corporate domain.
+   - Verify with a real message: check Authentication-Results shows spf=pass,
+     dkim=pass, dmarc=pass.
+
+4. Guard rails:
+   - EMAIL_TEST_MODE=true in staging redirects all mail to a single test inbox;
+     document how to enable it and how it is disabled in production.
+   - Rate limit outbound mail per minute to stay under the relay quota.
+   - Hard-bounced addresses are suppressed (PROMPT 14's bounce handling).
+   - Do not retry authentication failures; surface them in the admin delivery
+     log.
+
+--------------------------------------------------------------------------------
+TEST MATRIX - EVERY PATH MUST BE EXERCISED
+--------------------------------------------------------------------------------
+Send each message to at least two real mailboxes on different providers
+(Microsoft 365 and Gmail recommended), plus one internal address.
+
+  1. Instance admin "Send test email"                -> delivered
+  2. Workspace invitation                            -> delivered, link works
+  3. Existing user invited to a second workspace      -> delivered
+  4. Project invitation / added to project            -> delivered (if enabled)
+  5. Password reset                                   -> delivered, link works
+  6. Magic link sign-in                               -> delivered, link works
+  7. Email change verification                        -> delivered
+  8. Assignment notification (PROMPT 14)              -> delivered
+  9. State change notification                        -> delivered
+ 10. Comment notification                             -> delivered
+ 11. Mention notification                             -> delivered
+ 12. Work item completed notification                 -> delivered
+ 13. Due-soon and overdue (trigger the task manually)-> delivered
+ 14. Daily digest (set digest_frequency=daily)       -> one summary, no dupes
+ 15. Webhook deactivation email                      -> delivered
+ 16. Unsubscribe link                                -> works without login
+ 17. Plain-text alternative                          -> present and readable
+ 18. Non-ASCII names and emoji in the subject/body   -> correct encoding
+ 19. Long work item title (200+ chars)               -> truncated in subject,
+                                                        full in body
+ 20. Relay outage (stop Mailpit / wrong password)    -> queued or failed with a
+                                                        logged error, no crash,
+                                                        no duplicate on retry
+
+For each: record sender, recipient, subject, timestamp, message-id, SMTP
+response, and a screenshot of the received message. Store under
+docs/evidence/email/<case>.md.
+
+--------------------------------------------------------------------------------
+DELIVERABILITY CHECKS
+--------------------------------------------------------------------------------
+  - Send to Gmail: message lands in Inbox, not Spam; "Show original" shows
+    spf=pass, dkim=pass, dmarc=pass.
+  - Send to Microsoft 365: same checks; confirm the message is not quarantined.
+  - Check the relay's suppression/bounce dashboard after the run.
+  - Confirm links use the public WEB_URL (https://...), not localhost, and that
+    they open the correct workspace and item.
+  - Confirm unsubscribe only affects the specific event type, not security mail.
+  - Confirm no email is sent to a user who has been removed from the project
+    (test with PROMPT 14's isolation rule).
+
+--------------------------------------------------------------------------------
+FAILURE HANDLING
+--------------------------------------------------------------------------------
+  - Wrong credentials: admin test shows a clear error, the app keeps running,
+    queued mail retries later; no secrets in the error text.
+  - Relay timeout: worker does not hang; the delivery log records a timeout.
+  - 550/551 hard bounce: mark the recipient, stop retrying, surface it.
+  - 421/450 temporary: retry with backoff up to the configured limit.
+  - Duplicate prevention: the same activity does not send twice on retry
+    (idempotency key per event/recipient).
+
+--------------------------------------------------------------------------------
+TESTS AND AUTOMATION
+--------------------------------------------------------------------------------
+  - Add an automated test using Django's locmem backend for template rendering
+    and recipient resolution (no network).
+  - Add an integration test job (manual trigger) that sends to Mailpit and
+    asserts the message count, subject and links.
+  - Add a smoke script:
+      python manage.py email_smoke_test --to ops@example.com
+    which sends cases 1-4 and prints a pass/fail table. Safe to run in staging.
+  - Do not run the real relay in CI.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] SMTP is configured and enabled in the instance admin.
+[ ] The admin test email arrives.
+[ ] All 20 cases in the test matrix pass and are recorded with evidence.
+[ ] SPF, DKIM and DMARC pass on Gmail and Microsoft 365.
+[ ] Links use the production URL and resolve to the right item.
+[ ] Assignment, state change, comment and mention emails arrive within 2
+    minutes (or in the next digest when set to daily).
+[ ] Unsubscribe works and is honoured.
+[ ] Removed project members receive no further project email.
+[ ] Relay failure does not break work item saves or crash workers.
+[ ] No credential appears in logs, screenshots or the repository.
+[ ] Evidence pack committed under docs/evidence/email/.
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- In-app notifications keep working with email disabled.
+- Password reset and invitation links keep their current format and expiry.
+- Do not change the instance email settings schema used by the admin app.
+- Do not send email synchronously from a request.
+- Do not enable EMAIL_TEST_MODE in production.

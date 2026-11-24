@@ -1,0 +1,426 @@
+{
+  "issue": {
+    "label": "{count, plural, one {Issue} other {Issues}}",
+    "all": "All Issues",
+    "edit": "Edit issue",
+    "title": {
+      "label": "Issue title",
+      "required": "Issue title is required."
+    },
+    "add": {
+      "press_enter": "Press 'Enter' to add another issue",
+      "label": "Add issue",
+      "cycle": {
+        "failed": "Issue could not be added to the sprint. Please try again.",
+        "success": "{count, plural, one {Issue} other {Issues}} added to the sprint successfully.",
+        "loading": "Adding {count, plural, one {issue} other {issues}} to the sprint"
+      },
+      "assignee": "Add assignees",
+      "start_date": "Add start date",
+      "due_date": "Add due date",
+      "parent": "Add parent issue",
+      "sub_issue": "Add sub-task",
+      "dependency": "Add dependency",
+      "relation": "Add relation",
+      "link": "Add link",
+      "existing": "Add existing issue"
+    },
+    "remove": {
+      "label": "Remove issue",
+      "cycle": {
+        "loading": "Removing issue from the sprint",
+        "success": "Issue removed from the sprint successfully.",
+        "failed": "Issue could not be removed from the sprint. Please try again."
+      },
+      "module": {
+        "loading": "Removing issue from the component",
+        "success": "Issue removed from the component successfully.",
+        "failed": "Issue could not be removed from the component. Please try again."
+      },
+      "parent": {
+        "label": "Remove parent issue"
+      }
+    },
+    "new": "New issue",
+    "adding": "Adding issue",
+    "create": {
+      "success": "Issue created successfully"
+    },
+    "priority": {
+      "urgent": "Urgent",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "display": {
+      "properties": {
+        "label": "Display Properties",
+        "id": "ID",
+        "issue_type": "Issue Type",
+        "sub_issue_count": "Sub-task count",
+        "attachment_count": "Attachment count",
+        "created_on": "Created on",
+        "sub_issue": "Sub-task",
+        "work_item_count": "Issue count"
+      },
+      "extra": {
+        "show_sub_issues": "Show sub-tasks",
+        "show_empty_groups": "Show empty groups"
+      }
+    },
+    "layouts": {
+      "ordered_by_label": "This layout is ordered by",
+      "list": "List",
+      "kanban": "Board",
+      "calendar": "Calendar",
+      "spreadsheet": "Table",
+      "gantt": "Timeline",
+      "title": {
+        "list": "List Layout",
+        "kanban": "Board Layout",
+        "calendar": "Calendar Layout",
+        "spreadsheet": "Table Layout",
+        "gantt": "Timeline Layout"
+      }
+    },
+    "states": {
+      "active": "Active",
+      "backlog": "Backlog"
+    },
+    "comments": {
+      "placeholder": "Add comment",
+      "switch": {
+        "private": "Switch to private comment",
+        "public": "Switch to public comment"
+      },
+      "create": {
+        "success": "Comment created successfully",
+        "error": "Comment creation failed. Please try again later."
+      },
+      "update": {
+        "success": "Comment updated successfully",
+        "error": "Comment update failed. Please try again later."
+      },
+      "remove": {
+        "success": "Comment removed successfully",
+        "error": "Comment remove failed. Please try again later."
+      },
+      "upload": {
+        "error": "Asset upload failed. Please try again later."
+      },
+      "copy_link": {
+        "success": "Comment link copied to clipboard",
+        "error": "Error copying comment link. Please try again later."
+      },
+      "replies": {
+        "create": {
+          "submit_button": "Add reply",
+          "placeholder": "Add reply"
+        },
+        "toast": {
+          "fetch": {
+            "error": {
+              "message": "Failed to fetch replies"
+            }
+          },
+          "create": {
+            "success": {
+              "message": "Reply created successfully"
+            },
+            "error": {
+              "message": "Failed to create reply"
+            }
+          },
+          "update": {
+            "success": {
+              "message": "Reply updated successfully"
+            },
+            "error": {
+              "message": "Failed to update reply"
+            }
+          },
+          "delete": {
+            "success": {
+              "message": "Reply deleted successfully"
+            },
+            "error": {
+              "message": "Failed to delete reply"
+            }
+          }
+        }
+      }
+    },
+    "empty_state": {
+      "issue_detail": {
+        "title": "Issue does not exist",
+        "description": "The issue you are looking for does not exist, has been archived, or has been deleted.",
+        "primary_button": {
+          "text": "View other issues"
+        }
+      }
+    },
+    "sibling": {
+      "label": "Sibling issues"
+    },
+    "archive": {
+      "description": "Only completed or canceled issues can be archived",
+      "label": "Archive Issue",
+      "confirm_message": "Are you sure you want to archive the issue? All your archived issues can be restored later.",
+      "success": {
+        "label": "Archive success",
+        "message": "Your archives can be found in project archives."
+      },
+      "failed": {
+        "message": "Issue could not be archived. Please try again."
+      }
+    },
+    "restore": {
+      "success": {
+        "title": "Restore success",
+        "message": "Your issue can be found in project issues."
+      },
+      "failed": {
+        "message": "Issue could not be restored. Please try again."
+      }
+    },
+    "relation": {
+      "relates_to": "Relates to",
+      "duplicate": "Duplicate of",
+      "blocked_by": "Blocked by",
+      "blocking": "Blocking",
+      "start_before": "Starts Before",
+      "start_after": "Starts After",
+      "finish_before": "Finishes Before",
+      "finish_after": "Finishes After",
+      "implements": "Implements",
+      "implemented_by": "Implemented By"
+    },
+    "copy_link": "Copy issue link",
+    "delete": {
+      "label": "Delete issue",
+      "error": "Error deleting issue"
+    },
+    "subscription": {
+      "actions": {
+        "subscribed": "Issue subscribed successfully",
+        "unsubscribed": "Issue unsubscribed successfully"
+      }
+    },
+    "select": {
+      "error": "Please select at least one issue",
+      "empty": "No issues selected",
+      "add_selected": "Add selected issues",
+      "select_all": "Select all",
+      "deselect_all": "Deselect all"
+    },
+    "open_in_full_screen": "Open issue in full screen",
+    "duplicate": {
+      "modal": {
+        "title": "Make a copy to another project",
+        "description1": "This creates a copy of the issue.",
+        "description2": "All property data will be removed while duplicating.",
+        "placeholder": "Select a project"
+      }
+    },
+    "toast": {
+      "duplicate": {
+        "success": {
+          "message": "Issue duplicated successfully"
+        },
+        "error": {
+          "message": "Failed to duplicate issue"
+        }
+      }
+    },
+    "pages": {
+      "link_pages": "Link pages",
+      "show_wiki_pages": "Show Wiki pages",
+      "link_pages_to": "Link pages to",
+      "linked_pages": "Linked pages",
+      "no_description": "This is an empty page. Why don't you write something inside and see it show up here like this placeholder",
+      "toasts": {
+        "link": {
+          "success": {
+            "title": "Pages updated",
+            "message": "Pages updated successfully"
+          },
+          "error": {
+            "title": "Pages update failed",
+            "message": "Pages update failed"
+          }
+        },
+        "remove": {
+          "success": {
+            "title": "Page removed",
+            "message": "Page removed successfully"
+          },
+          "error": {
+            "title": "Page removal failed",
+            "message": "Page removal failed"
+          }
+        }
+      }
+    },
+    "vote": {
+      "click_to_upvote": "Click to upvote",
+      "click_to_downvote": "Click to downvote",
+      "click_to_view_upvotes": "Click to view upvotes",
+      "click_to_view_downvotes": "Click to view downvotes"
+    }
+  },
+  "sub_work_item": {
+    "update": {
+      "success": "Sub-task updated successfully",
+      "error": "Error updating sub-task"
+    },
+    "remove": {
+      "success": "Sub-task removed successfully",
+      "error": "Error removing sub-task"
+    },
+    "empty_state": {
+      "sub_list_filters": {
+        "title": "You don't have sub-tasks that match the filters you've applied.",
+        "description": "To see all sub-tasks, clear all applied filters.",
+        "action": "Clear filters"
+      },
+      "list_filters": {
+        "title": "You don't have issues that match the filters you've applied.",
+        "description": "To see all issues, clear all applied filters.",
+        "action": "Clear filters"
+      }
+    }
+  },
+  "issue_relation": {
+    "empty_state": {
+      "search": {
+        "title": "No matching issues found"
+      },
+      "no_issues": {
+        "title": "No issues found"
+      }
+    }
+  },
+  "issue_comment": {
+    "empty_state": {
+      "general": {
+        "title": "No comments yet",
+        "description": "Comments can be used as a discussion and follow-up space for the issues"
+      }
+    }
+  },
+  "bulk_operations": {
+    "error_details": {
+      "invalid_archive_state_group": {
+        "title": "Unable to archive issues",
+        "message": "Only issues belonging to Completed or Canceled state groups can be archived."
+      },
+      "invalid_issue_start_date": {
+        "title": "Unable to update issues",
+        "message": "Start date selected succeeds the due date for some issues. Ensure start date to be before the due date."
+      },
+      "invalid_issue_target_date": {
+        "title": "Unable to update issues",
+        "message": "Due date selected precedes the start date for some issues. Ensure due date to be after the start date."
+      },
+      "invalid_state_transition": {
+        "title": "Unable to update issues",
+        "message": "State change is not allowed for some issues. Ensure the state change is allowed."
+      }
+    }
+  },
+  "recurring_work_items": {
+    "settings": {
+      "heading": "Recurring issues",
+      "description": "Set your repeatable work once, and we’ll take care of the repeats. You’ll see everything right here when it’s time.",
+      "new_recurring_work_item": "New recurring issue",
+      "update_recurring_work_item": "Update recurring issue",
+      "form": {
+        "interval": {
+          "title": "Schedule",
+          "start_date": {
+            "validation": {
+              "required": "Start date is required"
+            }
+          },
+          "interval_type": {
+            "validation": {
+              "required": "Interval type is required"
+            }
+          }
+        },
+        "button": {
+          "create": "Create recurring issue",
+          "update": "Update recurring issue"
+        }
+      },
+      "create_button": {
+        "label": "Create recurring issue",
+        "no_permission": "Contact your project admin to create recurring issues"
+      }
+    },
+    "empty_state": {
+      "upgrade": {
+        "title": "Your work, on autopilot",
+        "description": "Set it once. We’ll bring it back when it’s due. Upgrade to Business to make recurring work feel effortless."
+      },
+      "no_templates": {
+        "button": "Create your first recurring issue"
+      }
+    },
+    "toasts": {
+      "create": {
+        "success": {
+          "title": "Recurring issue created",
+          "message": "{name}, the recurring issue, is now available for your workspace."
+        },
+        "error": {
+          "title": "We couldn't create that recurring issue this time.",
+          "message": "Try saving your details again or copy them over to a new recurring issue, preferably in another tab."
+        }
+      },
+      "update": {
+        "success": {
+          "title": "Recurring issue changed",
+          "message": "{name}, the recurring issue, was changed."
+        },
+        "error": {
+          "title": "We couldn't save changes to this recurring issue.",
+          "message": "Try saving your details again or come back to this recurring issue later. If there's trouble still, reach out to us."
+        }
+      },
+      "delete": {
+        "success": {
+          "title": "Recurring issue deleted",
+          "message": "{name}, the recurring issue, has now been deleted from your workspace."
+        },
+        "error": {
+          "title": "We couldn't delete that recurring issue this.",
+          "message": "Try deleting it again or come back to it later. If you can't delete it then, reach out to us."
+        }
+      }
+    },
+    "delete_confirmation": {
+      "title": "Delete recurring issue",
+      "description": {
+        "prefix": "Are you sure you want to delete recurring issue-",
+        "suffix": "? All of the data related to the recurring issue will be permanently removed. This action cannot be undone."
+      }
+    }
+  },
+  "epic": {
+    "new": "New Epic",
+    "label": "{count, plural, one {Epic} other {Epics}}",
+    "adding": "Adding epic",
+    "create": {
+      "success": "Epic created successfully"
+    },
+    "add": {
+      "label": "Add Epic",
+      "press_enter": "Press 'Enter' to add another epic"
+    },
+    "title": {
+      "label": "Epic Title",
+      "required": "Epic title is required."
+    }
+  }
+}

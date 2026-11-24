@@ -1,0 +1,87 @@
+{
+  "inbox_issue": {
+    "status": {
+      "pending": {
+        "title": "Pending",
+        "description": "Pending"
+      },
+      "declined": {
+        "title": "Declined",
+        "description": "Declined"
+      },
+      "snoozed": {
+        "title": "Snoozed",
+        "description": "{days, plural, one{# day} other{# days}} to go"
+      },
+      "accepted": {
+        "title": "Accepted",
+        "description": "Accepted"
+      },
+      "duplicate": {
+        "title": "Duplicate",
+        "description": "Duplicate"
+      }
+    },
+    "modals": {
+      "decline": {
+        "title": "Decline issue",
+        "content": "Are you sure you want to decline issue {value}?"
+      },
+      "delete": {
+        "title": "Delete issue",
+        "content": "Are you sure you want to delete issue {value}?",
+        "success": "Issue deleted successfully"
+      }
+    },
+    "errors": {
+      "snooze_permission": "Only project admins can snooze/Un-snooze issues",
+      "accept_permission": "Only project admins can accept issues",
+      "decline_permission": "Only project admins can deny issues"
+    },
+    "actions": {
+      "accept": "Accept",
+      "decline": "Decline",
+      "snooze": "Snooze",
+      "unsnooze": "Un snooze",
+      "copy": "Copy issue link",
+      "delete": "Delete",
+      "open": "Open issue",
+      "mark_as_duplicate": "Mark as duplicate",
+      "move": "Move {value} to project issues"
+    },
+    "source": {
+      "in-app": "in-app"
+    },
+    "order_by": {
+      "created_at": "Created at",
+      "updated_at": "Updated at",
+      "id": "ID"
+    },
+    "label": "Intake",
+    "page_label": "{workspace} - Intake",
+    "modal": {
+      "title": "Create intake issue"
+    },
+    "tabs": {
+      "open": "Open",
+      "closed": "Closed"
+    },
+    "empty_state": {
+      "sidebar_open_tab": {
+        "title": "No open issues",
+        "description": "Find open issues here. Create new issue."
+      },
+      "sidebar_closed_tab": {
+        "title": "No closed issues",
+        "description": "All the issues whether accepted or declined can be found here."
+      },
+      "sidebar_filter": {
+        "title": "No matching issues",
+        "description": "No issue matches filter applied in intake. Create a new issue."
+      },
+      "detail": {
+        "title": "Select an issue to view its details."
+      }
+    }
+  }
+}

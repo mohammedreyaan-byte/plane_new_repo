@@ -1,0 +1,157 @@
+================================================================================
+PROMPT 10 - PLN-009: Boards from per-type workflows + drag enforcement
+================================================================================
+Priority:      P1 - rebuild/extend existing board
+Type:          Backend metadata + frontend board rework
+Depends on:    PROMPT 03 (workflows), PROMPT 05 (role rules), PROMPT 02 (types)
+Branch:        feature/PLN-009-workflow-boards
+Estimated:     9-11 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+The board exists and works but:
+  - Columns are the project-wide State list.
+  - Any card can be dropped into any column; no transition check.
+  - No per-type column set, no swimlanes, no WIP limits.
+  - No within-column ordering endpoint beyond the generic sort_order update.
+
+Existing files:
+  apps/web/core/components/issues/issue-layouts/kanban/
+  apps/web/core/components/issues/issue-layouts/roots/
+  apps/api/plane/app/views/issue/base.py (list used by the board)
+
+--------------------------------------------------------------------------------
+BACKEND
+--------------------------------------------------------------------------------
+1. Board metadata on the list response (avoid a second request):
+   When `layout=board` or `group_by=state_id` and a type_id/type_ids filter is
+   present, add:
+
+   "columns": [
+     {"state_id": "...", "name": "In Testing", "group": "started",
+      "color": "#...", "sequence": 45000, "wip_limit": 5, "count": 12,
+      "is_initial": false, "is_final": false}
+   ],
+   "workflow": {"id": "...", "name": "Bug", "type_id": "..."},
+   "swimlanes": [{"type_id": "...", "type_name": "Bug", "columns": [...]}]
+
+   All-types mode groups by type then state. Do not merge states from different
+   workflows into one column.
+
+2. Add WorkflowState.wip_limit = PositiveIntegerField(null=True)
+   Project.board_wip_hard_limit = BooleanField(default=False)
+   (Warn by default; block on transition only when hard limit is on and the
+   target column is at/over limit.)
+
+3. Within-column ordering:
+   POST /api/workspaces/<slug>/projects/<pid>/board/reorder/
+   body {"issue_id": "...", "state_id": "...", "before_id": "...", "after_id": "..."}
+   Uses Issue.sort_order within the target state. Validate the item is in that
+   state and the user can edit it. Limit 200 items per bulk request.
+   Do not reuse backlog_rank.
+
+4. Drag:
+   PATCH work item with state_id still goes through transition_issue. No new
+   state-write endpoint. Return 403/400 with the standard error contract.
+
+5. Columns for a type with no workflow:
+   Return 409 or a columns=[] plus {"health": "no_workflow"} so the UI can show
+   a configuration call to action. Do not invent columns.
+
+6. Unmapped state:
+   If an item's state is not in its type's workflow (legacy data), include an
+   extra "unmapped" column for admins with a health warning. Never hide the card.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+Files:
+  apps/web/core/components/issues/issue-layouts/kanban/
+  apps/web/core/components/issues/issue-layouts/roots/project-layout-root.tsx
+  and all-issue-layout-root.tsx (these render the board for project and
+  all-issues scopes)
+  apps/web/core/components/issues/issue-layouts/properties/ (card)
+  apps/web/core/store/issue/ (board grouping/order)
+
+A. Type selector and columns
+   - Header: type selector (single type or "All types"), filter bar, display
+     options, add button per column.
+   - Single type: columns come from the API in workflow order.
+   - All types: swimlanes by type, each with its own columns; sticky lane
+     headers; horizontal scroll inside a lane, vertical across lanes.
+   - Collapsed columns persist per user (local storage or user preference).
+   - Column header: colour, name, count/limit, plus button, menu (edit WIP,
+     collapse).
+
+B. Drag
+   - On drag start, compute allowed targets from allowed_next_state_ids (fetch
+     once per board load; refresh on focus).
+   - Valid columns highlight with a dashed outline; invalid columns dim and show
+     a lock + tooltip.
+   - Drop on invalid is blocked locally; if forced, server 403 is handled with a
+     toast and rollback.
+   - Drop on valid opens the transition dialog when a comment/field is required.
+   - Optimistic move with pending style; rollback on 400/403/409.
+   - Keyboard: focus card, Space to lift, arrows to move, Space to drop,
+     Escape to cancel; announce column and position.
+   - Real-time: refresh on focus and after another user's move; do not flicker
+     during local drag.
+
+C. Card
+   - Show type badge (PROMPT 06), identifier, title, priority, assignee, labels,
+     estimate, due date.
+   - Do not show fields hidden by the display properties.
+
+D. Empty and error states
+   - No workflow: "This type has no workflow. Configure it in project settings."
+   - Empty column: dashed drop zone + "Add work item".
+   - Column at WIP limit: show count/limit in warning colour; block drop only if
+     the hard limit is on.
+
+E. Mobile
+   - Swipe between columns; long-press to drag; "Move to" menu as fallback.
+
+--------------------------------------------------------------------------------
+PERFORMANCE
+--------------------------------------------------------------------------------
+- Virtualise cards per column. Do not render 5,000 cards.
+- Fetch columns and counts in one request.
+- Do not fetch allowed transitions per card; fetch per board for the current
+  user, or lazily per card only when dragging.
+- Target: 20 columns, 200 visible cards, initial p95 < 800 ms, drag < 200 ms.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Column generation for Bug/Task/Story/Epic and all-types mode.
+- No-workflow and unmapped-state cases.
+- Drag allow/deny matrix for admin/member/developer/qa/viewer.
+- Comment-required transition dialog and cancel restores the card.
+- Reorder concurrency and cross-state rejection.
+- Keyboard E2E.
+- WIP warning vs hard block.
+- Performance test with 5,000 items.
+- Regression: project with types disabled renders the legacy board unchanged.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Selecting Bug shows exactly the Bug workflow columns in order.
+[ ] Selecting Story shows Story columns, not Bug columns.
+[ ] All-types shows swimlanes with the correct columns per type.
+[ ] Developer cannot drag In Testing -> Tested; QA can.
+[ ] Invalid drops are blocked in UI and API.
+[ ] Column order/collapse/WIP persist.
+[ ] Keyboard drag works and is announced.
+[ ] Legacy board unchanged when types are disabled.
+[ ] Tests green; evidence attached (board screenshots, 403 curl).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not break list/calendar/timeline layouts.
+- Do not change Issue.sort_order meaning outside a column.
+- Existing saved board views must still load; add columns metadata only when the
+  workflow feature is enabled for the project.
+- Analytics and cycle progress must keep counting cards correctly.

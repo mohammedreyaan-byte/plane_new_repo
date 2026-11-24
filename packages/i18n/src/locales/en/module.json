@@ -1,0 +1,7 @@
+{
+  "module": {
+    "label": "{count, plural, one {Component} other {Components}}",
+    "no_module": "No component",
+    "select": "Add components"
+  }
+}

@@ -1,0 +1,240 @@
+================================================================================
+PROMPT 08 - PLN-021: Slack integration (channels, events, delivery log)
+================================================================================
+Priority:      P0 - build from scratch (models and UI shell exist)
+Type:          Backend integration + frontend completion + external Slack App
+Depends on:    PROMPT 01 (capabilities), PROMPT 07 (integration framework)
+Branch:        feature/PLN-021-slack-integration
+Estimated:     7-9 dev days plus external app setup
+
+--------------------------------------------------------------------------------
+CONTEXT AND VERIFIED CODE FACTS
+--------------------------------------------------------------------------------
+Existing in v1.4.2:
+  apps/api/plane/db/models/integration/slack.py
+    SlackProjectSync(project, workspace_integration) - empty and unused
+  apps/web/core/components/integration/slack/select-channel.tsx
+  apps/web/core/components/integration/single-integration-card.tsx (Slack card)
+  Instance config exposes slack_client_id.
+
+Missing: all Slack backend views, OAuth, channel listing, event dispatch,
+message formatting, delivery logs, project-level UI and tests.
+
+The existing workspace integrations page and IntegrationService are shared with
+PROMPT 07. Implement Slack against the same framework and URL conventions; do
+not fork the page.
+
+--------------------------------------------------------------------------------
+EXTERNAL SETUP
+--------------------------------------------------------------------------------
+Create a Slack app:
+  OAuth scopes: channels:read, chat:write, team:read
+  Redirect URL: https://<plane-host>/api/integrations/slack/callback/
+  Signing secret for interactions (if interactive components are used)
+Environment:
+  SLACK_APP_ID
+  SLACK_CLIENT_ID
+  SLACK_CLIENT_SECRET
+  SLACK_SIGNING_SECRET
+  IS_SLACK_ENABLED=1
+
+Use OAuth v2. Store bot token encrypted, team id, team name, scopes and bot user
+id. Never return the token to the client.
+
+--------------------------------------------------------------------------------
+DATA MODEL
+--------------------------------------------------------------------------------
+1. Extend SlackProjectSync. Already present in apps/api/plane/db/models/
+   integration/slack.py: project, workspace_integration, team_id, team_name,
+   access_token (plaintext CharField 300), scopes, bot_user_id, webhook_url,
+   data. Keep them and add:
+     channel_id, channel_name CharField
+     events JSONField default list     # event keys
+     is_active Boolean default true
+     last_posted_at DateTime null
+     last_error TextField blank
+     access_token: keep the column name for compatibility but store ciphertext.
+       Widen to TextField in a migration, encrypt on write, decrypt on read via
+       the helper below. Never return it in a serializer.
+   Unique active (project, team_id, channel_id) where deleted_at is null.
+
+2. New IntegrationEventLog:
+     workspace, project FK
+     provider CharField(20)            # slack
+     event_key CharField(50)
+     entity_type CharField(50), entity_id UUID
+     channel_id CharField
+     status CharField(20)              # pending, sent, failed, skipped
+     attempts PositiveInteger default 0
+     response_code CharField(10)
+     error TextField blank
+     payload JSONField                 # redacted
+     index (project, created_at), (status)
+
+3. Add a small encryption helper (apps/api/plane/utils/encryption.py) using
+   Fernet with a key from `INTEGRATION_ENCRYPTION_KEY`. Store only ciphertext.
+   Key rotation: keep a key version prefix; decrypt old versions during a
+   migration window. Document the runbook.
+
+--------------------------------------------------------------------------------
+EVENT CATALOGUE
+--------------------------------------------------------------------------------
+  work_item.created
+  work_item.state_changed
+  work_item.assigned
+  work_item.priority_changed
+  work_item.commented
+  work_item.completed
+  cycle.started
+  cycle.completed
+  module.completed
+
+Default selection for a new sync:
+  work_item.created, work_item.state_changed, work_item.commented
+
+Rules:
+  - Only post events selected on the sync.
+  - Do not post for actions performed by the Slack bot itself.
+  - Do not post when the sync is inactive or the project flag is off.
+  - Deduplicate within 10 seconds by (event_key, entity_id, actor_id).
+  - Truncate titles/comments to a safe length; always link to the work item.
+  - Never include secrets, private attachment URLs or full descriptions.
+
+Message format (Block Kit):
+  header: "<TYPE> <IDENTIFIER> <title>"
+  fields: State, Priority, Assignee
+  context: "Changed by <actor>"
+  actions: button "View in Plane" -> work item URL
+  fallback text for notifications: "<IDENTIFIER> <title> - <event>"
+
+--------------------------------------------------------------------------------
+DELIVERY
+--------------------------------------------------------------------------------
+Celery task send_slack_event(event_log_id):
+  - load log, skip if already sent or sync inactive
+  - decrypt token
+  - chat.postMessage(channel, blocks, text)
+  - 200 -> sent, store ts; 429 -> retry after Retry-After, max 3 attempts;
+    channel_not_found / not_in_channel / token_revoked -> failed permanently,
+    deactivate sync if auth fails, notify the project admin
+  - store response code and a short error, never the token
+  - exponential backoff for 5xx and network errors
+  - do not retry 4xx other than 429
+
+Trigger points:
+  - Issue create/update/comment services, after commit, enqueue one task per
+    active sync.
+  - Cycle and module state changes.
+  - Use a dispatcher (apps/api/plane/utils/integrations/slack.py) so event
+    emission is not scattered.
+
+Test message:
+  POST .../test/ posts a sample message and returns {ok, response_code, error}.
+  Rate limit 5 per project per minute.
+
+Disconnect:
+  - Deactivate syncs, try auth.revoke, keep the delivery log, do not delete rows.
+
+--------------------------------------------------------------------------------
+API
+--------------------------------------------------------------------------------
+  GET    /api/integrations/
+  POST   /api/workspaces/<slug>/integrations/slack/connect/
+  GET    /api/integrations/slack/callback/
+  GET    /api/workspaces/<slug>/integrations/slack/
+  DELETE /api/workspaces/<slug>/integrations/slack/
+  GET    /api/workspaces/<slug>/integrations/slack/channels/
+  GET    /api/workspaces/<slug>/projects/<pid>/integrations/slack/
+  POST   /api/workspaces/<slug>/projects/<pid>/integrations/slack/
+  PATCH  /api/workspaces/<slug>/projects/<pid>/integrations/slack/<id>/
+  DELETE /api/workspaces/<slug>/projects/<pid>/integrations/slack/<id>/
+  POST   /api/workspaces/<slug>/projects/<pid>/integrations/slack/<id>/test/
+  GET    /api/workspaces/<slug>/projects/<pid>/integrations/slack/<id>/logs/
+
+Reuse the workspace-integrations list/delete endpoints from PROMPT 07 so the
+existing Slack card works.
+
+Create/update payload:
+  { "channel_id": "C123", "channel_name": "sdlc-alerts",
+    "events": ["work_item.created","work_item.state_changed"] }
+
+Validation:
+  - channel must belong to the connected team
+  - events must be from the catalogue
+  - one active sync per channel per project
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+A. Workspace Settings -> Integrations
+   - The Slack card already exists. Make it work: connected team name, scopes,
+     connected by, Uninstall.
+   - Channel list with search and Refresh; show a private-channel hint that the
+     bot must be invited.
+
+B. Project Settings -> Integrations -> Slack (new)
+   Route:
+     apps/web/app/(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/integrations/page.tsx
+   - "Enable Slack for this project".
+   - Channel picker (searchable; only channels the bot can post to).
+   - Event checkboxes with a one-line description and a sample payload preview.
+   - Test message button with result.
+   - Delivery log table: time, event, channel, status, response, error, retry
+     action for failed entries.
+   - Empty state: "Connect Slack in workspace settings first" with a link.
+
+C. Work item detail
+   - "Share to Slack" action (project admin/member) opening a channel picker and
+     posting a one-off message. Useful for escalation.
+   - Do not add a sidebar item; this is settings plus an item action.
+
+D. Status feedback
+   - If the bot is not in the channel, show "Invite @Plane to #channel" with the
+     exact Slack error.
+   - If the token is revoked, show Reconnect and disable the test button.
+
+--------------------------------------------------------------------------------
+PERMISSIONS
+--------------------------------------------------------------------------------
+- Connect/disconnect: workspace admin (integration.manage).
+- Project sync create/update/test/logs: project admin.
+- Members can read the sync status but not tokens or logs.
+- Tokens encrypted at rest; never returned; redact in logs.
+- Verify OAuth state; bound to workspace and user.
+- Rate-limit test messages and connect attempts.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- OAuth state valid/invalid/expired.
+- Channel listing and permission errors (mocked Slack).
+- Event dispatch: selected event posts, unselected does not.
+- Deduplication within 10 seconds.
+- Message formatting snapshot (Block Kit).
+- 429 retry with Retry-After; permanent failures deactivate.
+- Encryption round-trip; API never returns the token.
+- Permissions: workspace admin connects, project admin configures, member 403
+  for logs.
+- E2E with a Slack test channel or mocked HTTP.
+- Regression: GitHub integration still works after shared refactor.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Workspace admin can connect Slack and see the team name.
+[ ] Project admin can pick a channel and events.
+[ ] Creating a work item posts the configured message.
+[ ] A valid state transition posts the state-change message.
+[ ] Unselected events do not post.
+[ ] Failures are logged and retried; permanent failures are visible.
+[ ] Disconnect stops posts and keeps the log.
+[ ] Tokens never appear in responses or logs.
+[ ] Tests green; evidence attached (Slack message screenshot, log table).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Slack must not block work item saves; all posting is async.
+- Do not break the shared integrations page for GitHub.
+- Do not delete SlackProjectSync rows on disconnect.
+- Keep the existing instance-config keys used by the frontend.

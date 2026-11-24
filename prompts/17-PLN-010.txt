@@ -1,0 +1,193 @@
+================================================================================
+PROMPT 17 - PLN-010: Shared saved Views
+================================================================================
+Priority:      P1 - configure and validate native, plus sharing gaps
+Type:          Validation + permission hardening + seeded views
+Depends on:    PROMPT 06 (type filters), PROMPT 01 (capabilities)
+Branch:        feature/PLN-010-shared-views
+Estimated:     4-6 dev days
+
+--------------------------------------------------------------------------------
+CURRENT STATE AND GAP
+--------------------------------------------------------------------------------
+Views exist and are mature:
+
+  Project views
+    apps/api/plane/db/models/view.py:58
+      IssueView: name, description, query, filters, display_filters,
+                 display_properties, rich_filters, access (0 Private / 1 Public),
+                 sort_order, logo_props, owned_by, is_locked, archived_at
+    UI: apps/web/app/(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/views/
+    Store: apps/web/core/store/project-view.store.ts
+
+  Workspace views (cross-project)
+    apps/web/app/(all)/[workspaceSlug]/(projects)/workspace-views/
+    Store: apps/web/core/store/global-view.store.ts
+    Same API shape through the workspace service.
+
+Gaps to close:
+  - Public views are visible to project members, but there is no explicit
+    "share" action, no copy link, and no indication of who created or last
+    updated a view.
+  - There is no permission rule for who can edit a public view: today any member
+    can edit another member's public view.
+  - No default view per project; the last opened view is only remembered
+    locally.
+  - No lock enforcement in the UI (is_locked is stored but not respected).
+  - No archive/restore flow in the UI even though archived_at exists.
+  - No seeded standard views except the four from PROMPT 06.
+  - Workspace views cannot be scoped to a subset of projects.
+  - Views with deleted filters (type/state/label deleted) fail silently.
+
+--------------------------------------------------------------------------------
+PERMISSION MODEL
+--------------------------------------------------------------------------------
+  Access 0 (Private): only the owner can read, edit, delete, duplicate.
+  Access 1 (Public):
+    read      any project member with work_item.view
+    edit      owner, project admin, or workspace admin
+    delete    owner, project admin, or workspace admin
+    lock      project admin only (is_locked stops edits but not reads)
+  Guest: can read a public view only if it resolves to items they can see; the
+    view responds with the intersection, never with a 403 that reveals counts.
+  Workspace views follow the same rule at workspace scope; admin can restrict a
+    workspace view to selected projects.
+
+Enforce in apps/api/plane/app/views/view/base.py (and the workspace-view view).
+Never rely on the UI to hide the edit button.
+
+--------------------------------------------------------------------------------
+BACKEND WORK
+--------------------------------------------------------------------------------
+1. Extend IssueView with additive fields only:
+     last_updated_by FK User null
+     last_updated_at auto
+     is_default Boolean default false      (one per project per workspace scope)
+     project_ids JSONField default list    (workspace views only; [] = all)
+     schema_version PositiveSmallInteger default 1
+   Migration: add_view_sharing_fields, data migration sets last_updated_by =
+   owned_by, schema_version = 1.
+
+2. Validation and behaviour:
+   - is_default true clears the previous default in the same scope atomically.
+   - Deleting the default view promotes the oldest public view or none; never
+     leave a dangling default.
+   - is_locked blocks PATCH of query/filters/display_* but permits renaming and
+     re-sharing by an admin.
+   - Duplicate copies filters, display properties, access (private copy unless
+     the caller is an admin) and appends " (copy)".
+   - Archived views are excluded from lists; restore clears archived_at.
+   - Reject unknown filter keys only if the existing serializer already does;
+     otherwise persist and validate at read time.
+   - Return `filter_health` on GET: [{key, value, status: ok|unknown|deleted,
+     label}] so the UI can explain an empty list.
+
+3. Workspace view project scoping:
+   - GET accepts project_ids and validates membership.
+   - The query builder adds an `in project_id` clause when project_ids is not
+     empty, regardless of any other filter (defence in depth).
+   - A user who is not a member of a selected project sees that project's items
+     filtered out, not a 403.
+
+4. API (keep existing paths, add only what is missing):
+     GET/POST      /api/workspaces/<slug>/projects/<pid>/views/
+     GET/PATCH/DELETE /api/workspaces/<slug>/projects/<pid>/views/<view_id>/
+     POST          .../views/<view_id>/duplicate/
+     POST          .../views/<view_id>/lock/     {"is_locked": true}
+     POST          .../views/<view_id>/archive/
+     POST          .../views/<view_id>/restore/
+     GET/POST      /api/workspaces/<slug>/views/            workspace views
+     GET/PATCH/DELETE /api/workspaces/<slug>/views/<view_id>/
+
+5. Seed command (idempotent), extending PROMPT 06's command:
+     python manage.py seed_standard_views --workspace workspace-test
+   Project views for SDLC (is_public unless stated):
+     My open bugs            type Bug, state group unstarted+started,
+                             assignee dynamic current user
+     Ready for testing       type Bug, state In Testing
+     Reopened                type Bug, state Reopened
+     Current sprint          current active cycle, all types
+     Unassigned high priority priority urgent+high, assignee none
+     Recently completed      state group completed, last 14 days
+     Board - Bugs            layout board, type Bug, group by state
+     Epic roadmap            type Epic, layout gantt
+   Workspace views:
+     All open bugs           across all projects the user can see
+     My work                 assigned to current user, all projects
+   Dynamic current-user filters must use the existing filter token mechanism;
+   if none exists, implement `{"assignee_id": ["@me"]}` resolved at read time
+   server-side (never trust a client-supplied user id).
+
+--------------------------------------------------------------------------------
+FRONTEND WORK
+--------------------------------------------------------------------------------
+Files:
+  apps/web/core/components/views/            (project views)
+  apps/web/core/components/views/            (project and workspace views share
+                                             these components)
+  apps/web/core/services/view.service.ts
+  apps/web/core/store/project-view.store.ts, global-view.store.ts
+
+UI:
+  - Views sidebar/list: name, owner avatar, public/private icon, item count,
+    last updated, default star.
+  - Create/Edit form: name, description, access toggle, layout, filters (using
+    the shared filter components), display properties, "Set as default".
+  - Share action: copy a deep link, show "Anyone in this project can view".
+    There is no public internet link - do not add one; Plane views are
+    authenticated.
+  - Lock: admin toggles lock; locked views show a lock icon and hide the save
+    action for everyone.
+  - Duplicate, archive, restore, delete with confirmations.
+  - Empty/health state: if filter_health reports a deleted type/state/label,
+    show which filter is broken and a one-click "Remove broken filters".
+  - Workspace views: project scope picker (all projects or selected), with a
+    warning that members only see projects they can access.
+  - Default view opens when a user enters the project's Views section with no
+    explicit selection.
+  - Keyboard: navigate the view list with arrows, Enter opens, and all actions
+    are in a labelled menu.
+
+Navigation: no new sidebar item. Views already exist under the project and the
+workspace sidebar.
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Permission matrix: owner, other member, project admin, workspace admin, guest,
+  non-member, for read/edit/delete/lock on private and public views.
+- Default view uniqueness and promotion on delete.
+- Lock blocks PATCH of filters but not name/access.
+- Duplicate produces an independent copy.
+- Archive excludes from lists and restore brings it back.
+- Workspace view project scoping: member of one project sees only that project;
+  admin sees all.
+- Filter health reports a deleted type and the fix removes it.
+- Dynamic @me resolves to the caller and cannot be spoofed.
+- Seeded views: run twice, no duplicates; each view returns sensible items.
+- E2E: create a public view with a Bug filter, share the link with a second
+  user, confirm identical results and that the second user cannot edit it.
+- Regression: existing private views still load; view URLs unchanged.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] Public views are readable by project members and editable only by the
+    owner/admins.
+[ ] Private views are invisible to everyone else, including admins unless they
+    own them (document the admin exception if the product requires it).
+[ ] Locked views cannot change filters.
+[ ] Duplicate, archive, restore work.
+[ ] Workspace views can be scoped to selected projects.
+[ ] Broken filters are explained, not silently empty.
+[ ] Standard views are seeded in SDLC and the workspace.
+[ ] Tests green; evidence attached (shared view link, permission 403).
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not change the IssueView response shape in a breaking way; add fields.
+- Existing view links keep working.
+- Personal (private) views never become public through a duplicate.
+- Workspace views must not expose projects the viewer cannot access, including
+  through counts or group totals.

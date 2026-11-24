@@ -1,0 +1,229 @@
+================================================================================
+PROMPT 27 - PLN-027: UAT, training and go-live
+================================================================================
+Priority:      P0 - delivery and sign-off
+Type:          Process, documentation, training, go-live execution
+Depends on:    PROMPTS 01-26 complete, staging stable, backups restored once
+Branch:        chore/PLN-027-uat-go-live
+Estimated:     2 weeks (UAT window plus training)
+
+--------------------------------------------------------------------------------
+OBJECTIVE
+--------------------------------------------------------------------------------
+Get written acceptance from the business on the delivered SDLC platform, train
+the 15 users, and run a controlled go-live with a rollback plan and hypercare.
+This is not a documentation-only prompt: every artefact below must exist, be
+reviewed and be used.
+
+--------------------------------------------------------------------------------
+ENTRY CRITERIA (do not start UAT until all are true)
+--------------------------------------------------------------------------------
+  [ ] All P0 prompts are merged and deployed to staging from the fork.
+  [ ] PROMPT 26 E2E and load suites are green.
+  [ ] PROMPT 21 isolation suite is green.
+  [ ] PROMPT 23 email test matrix is complete.
+  [ ] PROMPT 25 restore drill has succeeded at least once.
+  [ ] Staging matches production images and configuration.
+  [ ] Known defects are triaged: no open P0/P1, P2 accepted in writing.
+  [ ] UAT users, roles and test data exist on staging.
+  [ ] A UAT coordinator and a business owner are named.
+
+--------------------------------------------------------------------------------
+UAT PLAN
+--------------------------------------------------------------------------------
+Scope: the business processes in Requirements.docx, not individual screens.
+
+  UAT-01  Workspace and project access
+          Admin invites the 15 users with the right roles; each user signs in
+          and sees only their projects. Developer/QA/Viewer/Guest restrictions
+          are visible and correct.
+
+  UAT-02  Create and classify work
+          Create a Bug, Task, Story and Epic; set type, state, priority,
+          assignee, estimate, labels, cycle, module and parent. Verify the item
+          appears in every layout.
+
+  UAT-03  Bug workflow
+          Walk a real bug through New -> In Progress -> Code Review ->
+          In Testing -> Tested -> Closed as the real developer and QA. Verify
+          the developer is blocked at Tested and the QA can close.
+
+  UAT-04  Task, Story and Epic workflows
+          Walk one of each through its states. Complete an Epic with children
+          and verify the guard.
+
+  UAT-05  Backlog and sprint
+          Rank the backlog, plan a cycle, move items, complete some, close the
+          cycle with carry-over, verify the burndown.
+
+  UAT-06  Board and filters
+          Work a day on the board: drag allowed, blocked columns explained,
+          filter by type/assignee/priority, save and share a View.
+
+  UAT-07  Modules and Epic linkage
+          Link an Epic to a module, add children, verify progress.
+
+  UAT-08  Reporting
+          Open the standard reports, verify counts against a manual list,
+          export CSV and open it.
+
+  UAT-09  Notifications and email
+          Assign, mention and transition; verify the in-app bell and the email
+          on two providers; unsubscribe from one event.
+
+  UAT-10  GitHub and Slack
+          A PR links to an item; a Slack channel receives the configured
+          events. Verify the wrong events do not post.
+
+  UAT-11  CI and service tokens
+          A CI job comments and transitions an item; a token scoped to another
+          project is denied.
+
+  UAT-12  Security and isolation
+          A project-A user cannot see project-B data; a guest sees only their
+          own items; a removed member loses access and email.
+
+For each: a script with steps, expected results, actual results, pass/fail,
+tester, date, evidence (screenshot or recording) and defect id if failed.
+Store in docs/uat/UAT-<id>.md and a summary tracker (CSV or the issue tracker).
+
+Defect handling:
+  - P0 blocker: fix and retest before go-live.
+  - P1 major: fix or written workaround approved by the business owner.
+  - P2 minor: log, schedule after go-live, accept in writing.
+  - P3 cosmetic: log only.
+  - Every defect links to a ticket and a fix commit. No verbal fixes.
+
+Sign-off:
+  - Business owner signs the UAT summary with a list of accepted P2/P3 items.
+  - Technical owner signs that the fixes are deployed and retested.
+
+--------------------------------------------------------------------------------
+TRAINING
+--------------------------------------------------------------------------------
+Audience-specific, 60-90 minutes each, recorded and stored with the project:
+
+  1. All users (45 min)
+     Sign-in, project navigation, work item basics, types, states, comments,
+     mentions, notifications, search, attachments, mobile.
+  2. Developers (60 min)
+     Backlog, board, moving bugs through Code Review and In Testing, linking
+     PRs, estimates, sub-items, bulk actions, keyboard shortcuts.
+  3. QA (45 min)
+     In Testing -> Tested -> Closed, reopening, creating bugs, evidence
+     attachments, filters, reports, blocked transitions and why.
+  4. Project admins (60 min)
+     Members and roles, states, types, workflows, labels, cycles, modules,
+     views, integrations, service tokens, webhooks, reports.
+  5. Workspace admins (45 min)
+     Workspace settings, integrations, service tokens, audit, email settings,
+     backup/restore ownership, escalation.
+
+Materials:
+  - Quick reference PDF (2 pages) per audience.
+  - A sandbox project for practice that is reset after training.
+  - A FAQ built from real UAT questions.
+  - A "who to ask" page: product owner, tech owner, on-call.
+  - Short screen recordings for the five most common tasks.
+  - Do not train on production data; use the training project.
+
+--------------------------------------------------------------------------------
+GO-LIVE PLAN
+--------------------------------------------------------------------------------
+T-14 days:
+  - Freeze scope. Only P0/P1 fixes.
+  - Confirm production sizing and monitoring.
+  - Final restore drill from the latest production-shaped backup.
+  - Communicate the cutover date, downtime and what changes for users.
+
+T-7 days:
+  - Deploy the release candidate to production (empty or pilot project) and run
+    the smoke test.
+  - Import or create the real workspace, 15 users and SDLC project; verify
+    roles.
+  - Configure SMTP, GitHub, Slack, types, workflows, states, labels and views.
+  - Run the full email test on production with real mailboxes.
+  - Confirm backups run and are verified.
+  - Train the admins.
+
+T-1 day:
+  - Final backup and checksum.
+  - Freeze configuration changes.
+  - Confirm rollback owner, window and criteria.
+  - Send the go-live notice with the schedule and support channel.
+
+Go-live day:
+  1. Set the maintenance banner (if available) or announce the window.
+  2. Deploy the approved digests; run migrations; verify health.
+  3. Smoke test: login, project, create/transition/delete a test item, board,
+     cycle, report, email, webhook.
+  4. Seed/verify the real project data and members.
+  5. Remove the banner; announce availability with the training links.
+  6. Monitor for 2 hours: errors, latency, queue depth, mail failures.
+
+Rollback triggers (any one):
+  - Login or core work item operations unavailable for 15 minutes.
+  - Data loss or corruption detected.
+  - Isolation breach.
+  - Migration failure that cannot be corrected forward within 30 minutes.
+
+Rollback steps:
+  1. Announce.
+  2. Redeploy previous digests.
+  3. Restore the database only if the migration or data is damaged; follow
+     PROMPT 25 runbook.
+  4. Verify, communicate, and schedule a post-incident review.
+
+--------------------------------------------------------------------------------
+HYPERCARE (first 10 working days)
+--------------------------------------------------------------------------------
+  - Daily 15-minute stand-up: defects, questions, adoption blockers.
+  - A single intake channel for bugs and requests; no side DMs.
+  - P0 response 1 hour, P1 same day, P2 within 3 days.
+  - Daily metrics: active users, items created, transitions, email delivery
+    rate, webhook failures, error rate, p95 latency.
+  - A decision log for configuration changes requested during hypercare.
+  - Exit criteria: 3 consecutive days without a P0/P1, adoption by all 15
+    users, and the business owner's written acceptance.
+
+--------------------------------------------------------------------------------
+DOCUMENTATION PACKAGE
+--------------------------------------------------------------------------------
+docs/go-live/
+  readiness-checklist.md        every item with owner and date
+  uat-summary.md                results, defects, sign-off
+  training/                     slides, recordings links, quick references
+  runbooks/                     deploy, rollback, backup/restore, incidents
+  support-model.md              who supports what, hours, escalation
+  known-limitations.md          P2/P3 accepted items and workarounds
+  release-notes.md              what changed for users, in plain language
+  data-migration.md             what was imported, counts, reconciliation
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] All 12 UAT scenarios executed with evidence and a pass/fail result.
+[ ] No open P0/P1 defects; P2/P3 accepted in writing by the business owner.
+[ ] Business and technical sign-off recorded.
+[ ] All five training sessions delivered and recorded.
+[ ] Quick references and FAQ published and accessible to users.
+[ ] Production configured and smoke-tested before the go-live window.
+[ ] Backups verified on the day.
+[ ] Go-live executed with monitoring; no rollback trigger hit, or rollback
+    executed cleanly.
+[ ] Hypercare started with the support model published.
+[ ] Documentation package complete and reviewed.
+[ ] Evidence attached: UAT tracker, sign-off, training attendance, go-live log,
+    hypercare metrics.
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Do not change application code during the go-live window except P0 fixes,
+  each with a reviewed PR and a retest.
+- Do not skip the restore drill because staging "works".
+- Do not declare go-live without written business acceptance.
+- Do not leave the training sandbox or test accounts enabled in production
+  after hypercare; disable them and record it.
+- Do not close the project without handing over ownership of secrets, backups,
+  monitoring and the on-call rota.

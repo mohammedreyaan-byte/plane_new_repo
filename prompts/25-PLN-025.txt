@@ -1,0 +1,184 @@
+================================================================================
+PROMPT 25 - PLN-025: Backups and restore drill
+================================================================================
+Priority:      P0 - delivery (restore must be proven before go-live)
+Type:          Infrastructure + runbook + restore test
+Depends on:    PROMPT 24 (stack definition; run the drill against staging or the
+               production stack before it opens to users)
+Branch:        chore/PLN-025-backups-restore
+Estimated:     3-4 days plus a scheduled drill
+
+--------------------------------------------------------------------------------
+SCOPE - WHAT MUST BE BACKED UP
+--------------------------------------------------------------------------------
+1. PostgreSQL (the system of record)
+   Database: plane (POSTGRES_DB), user plane, container plane-db in the local
+   stack; in production the managed instance or the compose service.
+   Includes every table: workspaces, projects, issues, types, workflows,
+   activities, comments, attachments metadata, tokens (hashes), views,
+   notifications, webhook logs, audit rows.
+
+2. Object storage (attachments, avatars, logos, exports)
+   Production: external S3-compatible bucket, or the bundled MinIO volume
+   `uploads`. If bundled, back up the volume or mirror the bucket. If external,
+   enable versioning and cross-region replication where available.
+
+3. Configuration and secrets
+   plane.env (rendered), proxy config volume, TLS certificates/ACME state, the
+   instance configuration table (SMTP, OAuth app ids - secrets may be in the
+   database), and the secret store export. Store encrypted, access-controlled,
+   and separately from the database backup so a single compromise does not
+   reveal both.
+
+4. Code and images
+   Git tags, image digests and the compose override for every release. This is
+   reproducible from CI; still record the digests in the release log.
+
+5. Search/queue/cache (Redis, RabbitMQ)
+   Not a source of truth. Do not back up as data; document that queued jobs are
+   lost on restore and how to re-drive them (email, webhooks, exports).
+
+--------------------------------------------------------------------------------
+BACKUP DESIGN
+--------------------------------------------------------------------------------
+Targets (agree with the product owner, then write them down):
+  RPO <= 15 minutes for the database
+  RTO <= 4 hours for the full stack
+  Retention: 7 daily, 4 weekly, 12 monthly; 35 days of WAL/PITR
+  Encryption: AES-256 at rest, TLS in transit, separate key custody
+  Location: off-host, preferably off-site or a second region/account
+
+Database:
+  - Nightly logical backup:
+      pg_dump -Fc --no-owner --no-privileges -d plane -f plane_YYYYMMDD.dump
+    Plus a plain SQL schema dump for readability.
+  - Continuous archiving for PITR:
+      archive_mode = on, archive_command to object storage, base backup weekly
+      (pg_basebackup) and WAL retention matching the window.
+    If PITR is not approved, reduce the RPO claim to the nightly backup and say
+    so explicitly in the runbook.
+  - Verify the dump with `pg_restore --list` immediately after creation.
+  - Checksum every artifact (sha256) and record it in a manifest.
+
+Object storage:
+  - External S3: enable versioning, lifecycle to cold storage, replication if
+    available.
+  - MinIO: `mc mirror --overwrite` to a second MinIO/S3 target nightly, plus a
+    weekly full copy. Verify object counts and total bytes.
+  - Note that attachment rows in Postgres reference object keys; a restore of
+    one without the other breaks downloads.
+
+Configuration:
+  - Encrypt plane.env and proxy config with age/GPG or the secret manager.
+  - Back up the instance configuration table as part of the database; document
+    which secrets are database-backed so a restore does not silently revert to
+    old credentials.
+
+Automation:
+  - A backup script (PowerShell for the Windows host or bash for Linux) with:
+      set -euo pipefail / $ErrorActionPreference = "Stop"
+      lock file to prevent overlap
+      timestamped artifacts
+      checksum manifest
+      upload with retries
+      retention pruning that never deletes the last successful backup
+      exit non-zero on any failure
+  - Schedule nightly at a quiet hour, plus weekly base backup.
+  - Alert on failure or on a backup older than 24 hours. A backup that silently
+    stops is worse than none.
+  - Log to the central log store with a correlation id.
+
+--------------------------------------------------------------------------------
+RESTORE DRILL - THE REAL DELIVERABLE
+--------------------------------------------------------------------------------
+Do this in an isolated environment that cannot reach production.
+
+1. Provision a clean host with the same image digests and an empty database.
+2. Restore the latest nightly dump:
+     createdb plane_restore
+     pg_restore --clean --if-exists --no-owner -d plane_restore plane_YYYYMMDD.dump
+   Then apply the WAL if PITR is enabled, to the chosen recovery target.
+3. Restore the object store to a staging bucket and point the restored app at
+   it through configuration.
+4. Restore plane.env and proxy config; use staging secrets, not production ones.
+5. Start the stack and run verification:
+     - row counts per table vs the source snapshot (within the RPO window)
+     - every workspace, project, work item, comment and attachment count
+     - a random sample of 20 work items: open each, verify fields, comments,
+       attachments and activity
+     - log in as an admin and a normal member; verify roles and permissions
+     - open a board, a cycle, a module, a view and analytics
+     - download an attachment and open a page
+     - search returns results
+     - create, edit, transition and delete a test work item
+     - send a test email and a test webhook (do not send to the real recipients)
+     - run `python manage.py check` and the integrity checks
+6. Record the restore time (RTO measured), the data loss window (RPO measured)
+   and every issue found.
+7. Repeat until the RTO target is met. Fix the runbook, not just the drill.
+
+Verification SQL (save as docs/runbooks/restore-verify.sql):
+  - counts for workspace, project, issue, issue_comment, issue_activity,
+    attachment, cycle, module, view, work_item_type, workflow,
+    workflow_transition, api_token
+  - orphan checks: issues without a project, comments without an issue,
+    attachments without an issue/page, cycle_issues without a cycle
+  - duplicate checks on unique constraints
+  - latest created_at per major table to confirm the recovery point
+  Compare against the source system captured at backup time.
+
+--------------------------------------------------------------------------------
+RUNBOOK CONTENT
+--------------------------------------------------------------------------------
+docs/runbooks/backup-restore.md must contain:
+  - What is backed up, where, how often, retention and encryption.
+  - How to check the last successful backup and its checksum.
+  - How to restore the database (exact commands, both dump and PITR paths).
+  - How to restore objects and configuration.
+  - How to point the app at the restored data without touching production.
+  - How to verify and how to declare success.
+  - How to rotate credentials after a restore (do not reuse a compromised set).
+  - Who is authorised to restore, and the two-person rule for production.
+  - Contact list and escalation.
+  - Known limitations (queue loss, in-flight exports, sessions).
+
+--------------------------------------------------------------------------------
+TESTS
+--------------------------------------------------------------------------------
+- Backup script: success, upload failure, disk full, overlapping run, retention
+  keeps the last good backup.
+- Restore into a disposable environment from the nightly dump; assert the verify
+  SQL passes.
+- PITR (if enabled): restore to a timestamp 10 minutes before a known delete and
+  prove the record exists.
+- Object restore: download 10 sampled attachments and compare checksums.
+- Alerting: delete a backup artifact in staging and confirm the "backup missing"
+  alert fires.
+- Secrets: confirm the backup does not contain plaintext production secrets
+  where encryption is expected; scan the artifact for known secret strings.
+
+--------------------------------------------------------------------------------
+ACCEPTANCE CHECKLIST
+--------------------------------------------------------------------------------
+[ ] RPO/RTO are written, approved and match the implementation.
+[ ] Nightly database backup runs and is verified automatically.
+[ ] Object storage is backed up and versioned or mirrored.
+[ ] Configuration and secrets are backed up separately and encrypted.
+[ ] A monitored alert fires when a backup fails or is stale.
+[ ] A full restore into an isolated environment succeeds.
+[ ] Verification SQL passes and a sample of items, comments and attachments is
+    correct.
+[ ] Measured RTO and RPO are within target and recorded.
+[ ] Runbook is complete and reviewed by a second engineer.
+[ ] Retention and deletion are implemented (no infinite growth).
+[ ] Evidence attached: restore log, verification output, timings.
+
+--------------------------------------------------------------------------------
+NON-REGRESSION
+--------------------------------------------------------------------------------
+- Backups must not lock the database or slow production noticeably; use
+  pg_dump during the quiet window or a replica.
+- Do not store backups on the same disk as the database.
+- Do not restore over production without an approved change and a fresh backup.
+- Do not commit any backup artifact or secret to git.
+- Do not claim PITR if only nightly dumps exist.

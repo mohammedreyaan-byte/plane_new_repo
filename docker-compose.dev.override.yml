@@ -1,0 +1,11 @@
+# Local-only override for this machine.
+# PostgreSQL 17 already listens on host port 5432, so publish the dev database
+# on 5433 instead. Containers still reach it at plane-db:5432.
+services:
+  plane-db:
+    ports: !override
+      - "5433:5432"
+  plane-minio:
+    # Docker Hub no longer serves minio/minio. Use the image already used by
+    # the local self-host stack; it includes both minio and mc.
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
