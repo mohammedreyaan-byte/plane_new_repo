@@ -5,7 +5,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { GitBranch, Layers, Users, Zap } from "lucide-react";
+import { Download, GitBranch, Layers, Target, Users, Zap } from "lucide-react";
 // plane imports
 import type { ISvgIcons } from "@plane/propel/icons";
 import {
@@ -36,4 +36,6 @@ export const PROJECT_SETTINGS_ICONS: Record<TProjectSettingsTabs, LucideIcon | R
   work_item_types: Layers,
   workflows: GitBranch,
   automations: Zap,
+  import: Download,
+  initiatives: Target,
 };

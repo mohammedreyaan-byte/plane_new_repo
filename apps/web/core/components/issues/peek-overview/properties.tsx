@@ -36,6 +36,7 @@ import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 // plane web components
+import { GitLinkedReferences } from "@/components/issues/git-linked-references";
 import { IssueParentSelectRoot } from "@/components/issues/parent-select-root";
 import type { TIssueOperations } from "../issue-detail";
 import { IssueCycleSelect } from "../issue-detail/cycle-select";
@@ -54,7 +55,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
   const { workspaceSlug, projectId, issueId, issueOperations, disabled } = props;
   const { t } = useTranslation();
   // store hooks
-  const { getProjectById } = useProject();
+  const { getProjectById, getProjectIdentifierById } = useProject();
   const {
     issue: { getIssueById },
   } = useIssueDetail();
@@ -65,6 +66,7 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
   if (!issue) return <></>;
   const createdByDetails = getUserDetails(issue?.created_by);
   const projectDetails = getProjectById(issue.project_id);
+  const workItemKey = `${getProjectIdentifierById(issue.project_id ?? projectId)}-${issue.sequence_id}`;
   const isEstimateEnabled = projectDetails?.estimate;
   const stateDetails = getStateById(issue.state_id);
 
@@ -244,6 +246,13 @@ export const PeekOverviewProperties = observer(function PeekOverviewProperties(p
         <SidebarPropertyListItem icon={LabelPropertyIcon} label={t("common.labels")}>
           <IssueLabel workspaceSlug={workspaceSlug} projectId={projectId} issueId={issueId} disabled={disabled} />
         </SidebarPropertyListItem>
+        <GitLinkedReferences
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
+          issueId={issueId}
+          workItemKey={workItemKey}
+          disabled={disabled}
+        />
       </div>
     </div>
   );

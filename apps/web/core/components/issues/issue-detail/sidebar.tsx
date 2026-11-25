@@ -37,6 +37,7 @@ import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
 import { useProjectState } from "@/hooks/store/use-project-state";
 // components
+import { GitLinkedReferences } from "@/components/issues/git-linked-references";
 import { IssueParentSelectRoot } from "@/components/issues/parent-select-root";
 import { SidebarPropertyListItem } from "@/components/common/layout/sidebar/property-list-item";
 import { IssueCycleSelect } from "./cycle-select";
@@ -56,7 +57,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
   const { t } = useTranslation();
   const { workspaceSlug, projectId, issueId, issueOperations, isEditable } = props;
   // store hooks
-  const { getProjectById } = useProject();
+  const { getProjectById, getProjectIdentifierById } = useProject();
   const { areEstimateEnabledByProjectId } = useProjectEstimates();
   const {
     issue: { getIssueById },
@@ -71,6 +72,7 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
   // derived values
   const projectDetails = getProjectById(issue.project_id);
   const stateDetails = getStateById(issue.state_id);
+  const workItemKey = `${getProjectIdentifierById(issue.project_id ?? projectId)}-${issue.sequence_id}`;
 
   const minDate = issue.start_date ? getDate(issue.start_date) : null;
   minDate?.setDate(minDate.getDate());
@@ -260,6 +262,13 @@ export const IssueDetailsSidebar = observer(function IssueDetailsSidebar(props: 
               />
             </SidebarPropertyListItem>
           </div>
+          <GitLinkedReferences
+            workspaceSlug={workspaceSlug}
+            projectId={projectId}
+            issueId={issueId}
+            workItemKey={workItemKey}
+            disabled={!isEditable}
+          />
         </div>
       </div>
     </>

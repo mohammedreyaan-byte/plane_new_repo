@@ -137,3 +137,14 @@ from .draft import (
     DraftIssueSerializer,
     DraftIssueDetailSerializer,
 )
+from .gmc_features import (
+    AutomationRuleSerializer,
+    AutomationRunSerializer,
+    ExternalAccountIntegrationSerializer,
+    ExternalMessageLogSerializer,
+    ExternalRepositorySerializer,
+    ExternalWebhookEventSerializer,
+    GmcImporterSerializer,
+    InitiativeSerializer,
+    SlackChannelSubscriptionSerializer,
+)

@@ -1583,6 +1583,30 @@ def issue_activity(
         # Save all the values to database
         issue_activities_created = IssueActivity.objects.bulk_create(issue_activities)
 
+        # Production GMC features consume the same activity stream that drives
+        # Plane notifications, so automations and Slack fire for real work
+        # item events regardless of which UI surface made the change.
+        if type in (
+            "issue.activity.created",
+            "issue.activity.updated",
+            "issue.activity.deleted",
+            "comment.activity.created",
+        ):
+            try:
+                from plane.bgtasks.gmc_event_dispatch import dispatch_gmc_issue_event
+
+                dispatch_gmc_issue_event(
+                    activity_type=type,
+                    requested_data=requested_data,
+                    current_instance=current_instance,
+                    issue_id=str(issue_id),
+                    project_id=str(project_id),
+                    actor_id=str(actor_id) if actor_id else "",
+                    origin=origin,
+                )
+            except Exception as gmc_exc:
+                log_exception(gmc_exc)
+
         if notification:
             notifications.delay(
                 type=type,

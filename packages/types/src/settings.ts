@@ -16,7 +16,9 @@ export type TWorkspaceSettingsTabs =
   | "work-item-types"
   | "billing-and-plans"
   | "export"
-  | "webhooks";
+  | "webhooks"
+  | "integrations"
+  | "slack";
 export type TWorkspaceSettingsItem = {
   key: TWorkspaceSettingsTabs;
   i18n_label: string;
@@ -38,7 +40,9 @@ export type TProjectSettingsTabs =
   | "estimates"
   | "work_item_types"
   | "workflows"
-  | "automations";
+  | "automations"
+  | "import"
+  | "initiatives";
 export type TProjectSettingsItem = {
   key: TProjectSettingsTabs;
   i18n_label: string;

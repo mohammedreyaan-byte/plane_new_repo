@@ -8,6 +8,7 @@ from .asset import urlpatterns as asset_urls
 from .cycle import urlpatterns as cycle_urls
 from .estimate import urlpatterns as estimate_urls
 from .external import urlpatterns as external_urls
+from .gmc_features import urlpatterns as gmc_feature_urls
 from .intake import urlpatterns as intake_urls
 from .issue import urlpatterns as issue_urls
 from .issue_type import urlpatterns as issue_type_urls
@@ -32,6 +33,7 @@ urlpatterns = [
     *cycle_urls,
     *estimate_urls,
     *external_urls,
+    *gmc_feature_urls,
     *intake_urls,
     *issue_urls,
     *issue_type_urls,

@@ -176,6 +176,16 @@
       "current": "Current estimate system",
       "select": "Select an estimate system"
     },
+    "import": {
+      "label": "Import",
+      "heading": "Import work items",
+      "description": "Bring work items into this project from CSV, Jira or GitHub."
+    },
+    "initiatives": {
+      "label": "Initiatives",
+      "heading": "Initiatives",
+      "description": "Manage strategic initiatives, track linked modules and epics, and review the roadmap."
+    },
     "automations": {
       "label": "Automations",
       "heading": "Automations",

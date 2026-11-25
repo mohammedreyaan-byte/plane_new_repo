@@ -17,6 +17,17 @@ from .draft import (
 )
 from .estimate import Estimate, EstimatePoint
 from .exporter import ExporterHistory
+from .gmc_features import (
+    AutomationRule,
+    AutomationRun,
+    ExternalAccountIntegration,
+    ExternalMessageLog,
+    ExternalRepository,
+    ExternalWebhookEvent,
+    Initiative,
+    OAuthAuthorizationRequest,
+    SlackChannelSubscription,
+)
 from .importer import Importer
 from .intake import Intake, IntakeIssue
 from .integration import (

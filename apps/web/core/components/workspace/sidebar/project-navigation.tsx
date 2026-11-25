@@ -7,7 +7,7 @@
 import React, { useCallback, useMemo } from "react";
 import { observer } from "mobx-react";
 import Link from "next/link";
-import { ListTodo } from "lucide-react";
+import { ListTodo, Target } from "lucide-react";
 import { useParams, usePathname } from "next/navigation";
 import { EUserPermissionsLevel, EUserPermissions } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
@@ -38,7 +38,7 @@ export type TNavigationItem = {
 };
 
 // layouts that have their own entry (Board, Timeline); every other layout belongs to the Issues entry
-const DEDICATED_LAYOUT_ITEMS: EIssueLayoutTypes[] = [EIssueLayoutTypes.KANBAN, EIssueLayoutTypes.GANTT];
+const DEDICATED_LAYOUT_ITEMS = new Set<EIssueLayoutTypes>([EIssueLayoutTypes.KANBAN, EIssueLayoutTypes.GANTT]);
 
 type TProjectItemsProps = {
   workspaceSlug: string;
@@ -79,6 +79,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
   };
 
   const baseNavigation = useCallback(
+    // oxlint-disable-next-line no-shadow
     (workspaceSlug: string, projectId: string): TNavigationItem[] => [
       {
         i18n_key: "sidebar.work_items",
@@ -144,6 +145,16 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
         sortOrder: 3,
       },
       {
+        i18n_key: "sidebar.initiatives",
+        key: "initiatives",
+        name: "Initiatives",
+        href: `/${workspaceSlug}/projects/${projectId}/initiatives`,
+        icon: Target,
+        access: [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+        shouldRender: true,
+        sortOrder: 3.5,
+      },
+      {
         i18n_key: "sidebar.views",
         key: "views",
         name: "Views",
@@ -179,6 +190,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
 
   // memoized navigation items and adding additional navigation items
   const navigationItemsMemo = useMemo(() => {
+    // oxlint-disable-next-line no-shadow
     const navigationItems = (workspaceSlug: string, projectId: string): TNavigationItem[] => {
       const navItems = baseNavigation(workspaceSlug, projectId);
 
@@ -190,6 +202,7 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
     };
 
     // sort navigation items by sortOrder
+    // oxlint-disable-next-line unicorn/no-array-sort
     const sortedNavigationItems = navigationItems(workspaceSlug, projectId).sort(
       (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)
     );
@@ -209,11 +222,11 @@ export const ProjectNavigation = observer(function ProjectNavigation(props: TPro
       // pathname condition
       const isPathnameActive = pathname.includes(item.href);
       // Board / Timeline share the Issues page, so they are told apart by the current layout
-      if (item.layout && DEDICATED_LAYOUT_ITEMS.includes(item.layout)) {
+      if (item.layout && DEDICATED_LAYOUT_ITEMS.has(item.layout)) {
         return isPathnameActive && currentLayout === item.layout;
       }
       // Issues entry: not active while the Board / Timeline layout is showing
-      if (item.key === "work_items" && currentLayout && DEDICATED_LAYOUT_ITEMS.includes(currentLayout)) {
+      if (item.key === "work_items" && currentLayout && DEDICATED_LAYOUT_ITEMS.has(currentLayout)) {
         return !!isWorkItemActive;
       }
       // return

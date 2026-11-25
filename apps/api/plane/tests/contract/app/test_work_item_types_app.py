@@ -371,5 +371,7 @@ def test_epic_type_linked_from_a_module_cannot_be_deleted(workspace, project, ad
     assert IssueType.objects.filter(pk=epic.type_id).exists()
 
     Module.objects.filter(epic=epic).update(epic=None)
-    assert admin_client.delete(f"{ws_types(workspace)}{epic.type_id}/").status_code == 204
+    # The guard is gone, but the epic work item still uses the type, so the
+    # normal in-use force rule applies before the type can be removed.
+    assert admin_client.delete(f"{ws_types(workspace)}{epic.type_id}/?force=true").status_code == 204
     assert not IssueType.objects.filter(pk=epic.type_id).exists()

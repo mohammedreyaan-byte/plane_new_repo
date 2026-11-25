@@ -38,4 +38,6 @@ class TestLabelSerializer:
 
         serializer = LabelSerializer(data={"name": "Test Label"}, context={"project_id": project.id})
         assert not serializer.is_valid()
-        assert serializer.errors == {"name": ["LABEL_NAME_ALREADY_EXISTS"]}
+        assert serializer.errors["error"]["code"] == "duplicate_label_name"
+        assert "already exists" in serializer.errors["error"]["message"]
+        assert serializer.errors["error"]["details"]["workspace_id"] == str(workspace.id)

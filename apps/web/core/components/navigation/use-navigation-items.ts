@@ -6,7 +6,7 @@
 
 import { useMemo, useCallback } from "react";
 // plane imports
-import { ChartColumn, ListTodo } from "lucide-react";
+import { ChartColumn, ListTodo, Target } from "lucide-react";
 import { EUserPermissions, EUserPermissionsLevel, VIEWER_ROLE } from "@plane/constants";
 import { CycleIcon, IntakeIcon, ModuleIcon, PageIcon, ViewsIcon, WorkItemsIcon } from "@plane/propel/icons";
 import type { EUserProjectRoles, IPartialProject } from "@plane/types";
@@ -98,6 +98,16 @@ export const useNavigationItems = ({
         access: [EUserPermissions.ADMIN, EUserPermissions.MEMBER],
         shouldRender: !!project?.module_view,
         sortOrder: 3,
+      },
+      {
+        i18n_key: "sidebar.initiatives",
+        key: "initiatives",
+        name: "Initiatives",
+        href: `/${workspaceSlug}/projects/${projectId}/initiatives`,
+        icon: Target,
+        access: [EUserPermissions.ADMIN, EUserPermissions.MEMBER, EUserPermissions.GUEST],
+        shouldRender: true,
+        sortOrder: 3.5,
       },
       {
         i18n_key: "sidebar.views",

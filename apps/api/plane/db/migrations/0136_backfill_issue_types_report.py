@@ -80,15 +80,18 @@ def backfill(apps, schema_editor):
         now = timezone.now()
         for issue in Issue.issue_objects.filter(project_id=project.pk).iterator(chunk_size=BATCH_SIZE):
             report["scanned"] += 1
+            # The backfill only seeds missing types. An issue that already has a
+            # type (including one assigned by an earlier run) must never be
+            # rewritten, otherwise the migration is not re-runnable.
+            if issue.type_id is not None:
+                report["skipped"] += 1
+                continue
             from_label = issue.pk in bug_label_issue_ids
             target_id = bug_row.issue_type_id if from_label else defaults.issue_type_id
-            if issue.type_id != target_id:
-                Issue.issue_objects.filter(pk=issue.pk).update(type_id=target_id, updated_at=now)
-                report["updated"] += 1
-                if from_label:
-                    report["bugs_from_label"] += 1
-            else:
-                report["skipped"] += 1
+            Issue.issue_objects.filter(pk=issue.pk).update(type_id=target_id, updated_at=now)
+            report["updated"] += 1
+            if from_label:
+                report["bugs_from_label"] += 1
 
         if label_link_pks:
             for start in range(0, len(label_link_pks), BATCH_SIZE):

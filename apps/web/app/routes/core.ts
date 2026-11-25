@@ -178,6 +178,18 @@ export const coreRoutes: RouteConfigEntry[] = [
             ),
           ]),
 
+          // Initiatives (roadmap)
+          layout("./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/initiatives/layout.tsx", [
+            route(
+              ":workspaceSlug/projects/:projectId/initiatives/:initiativeId",
+              "./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/initiatives/[initiativeId]/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/projects/:projectId/initiatives",
+              "./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/initiatives/page.tsx"
+            ),
+          ]),
+
           // View Detail
           layout("./(all)/[workspaceSlug]/(projects)/projects/(detail)/[projectId]/views/(detail)/layout.tsx", [
             route(
@@ -294,6 +306,14 @@ export const coreRoutes: RouteConfigEntry[] = [
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/exports/page.tsx"
           ),
           route(
+            ":workspaceSlug/settings/integrations",
+            "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/integrations/page.tsx"
+          ),
+          route(
+            ":workspaceSlug/settings/integrations/slack",
+            "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/integrations/slack/page.tsx"
+          ),
+          route(
             ":workspaceSlug/settings/webhooks",
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/webhooks/page.tsx"
           ),
@@ -373,6 +393,16 @@ export const coreRoutes: RouteConfigEntry[] = [
                 "./(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/automations/page.tsx"
               ),
             ]),
+            // Project Import
+            route(
+              ":workspaceSlug/settings/projects/:projectId/import",
+              "./(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/import/page.tsx"
+            ),
+            // Project Initiatives
+            route(
+              ":workspaceSlug/settings/projects/:projectId/initiatives",
+              "./(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/initiatives/page.tsx"
+            ),
           ]),
         ]),
       ]),
