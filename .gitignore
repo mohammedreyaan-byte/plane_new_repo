@@ -130,3 +130,27 @@ packages/i18n/src/types/keys.generated.ts
 *.log
 .pytest_cache/
 __pycache__/
+
+
+
+#Unnecessary Files
+/check_rows.py
+/check_rows.txt
+/extracted_Horilla_HRMS.txt
+/extracted_Installation_.txt
+/extracted_Plane_CE.txt
+/extracted_Plane_CE_Baseline.txt
+/extracted_Plane_CE_Test_Data.txt
+/fix_excel.py
+/fix_excel_v2.py
+/gmc-plane-ce-changes 25112026.patch
+/read_excel.py
+/update_excel.py
+/verify_baseline.txt
+/verify_excel.py
+/verify_final.py
+/verify_final.txt
+/verify_pln.txt
+/verify_pln13.py
+/verify_pln13.txt
+/verify_pln_final.txt
