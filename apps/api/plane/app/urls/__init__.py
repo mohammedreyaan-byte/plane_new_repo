@@ -17,12 +17,14 @@ from .report import urlpatterns as report_urls
 from .module import urlpatterns as module_urls
 from .notification import urlpatterns as notification_urls
 from .page import urlpatterns as page_urls
+from .page_comment import urlpatterns as page_comment_urls
 from .project import urlpatterns as project_urls
 from .search import urlpatterns as search_urls
 from .state import urlpatterns as state_urls
 from .user import urlpatterns as user_urls
 from .views import urlpatterns as view_urls
 from .webhook import urlpatterns as webhook_urls
+from .work_item_templates import urlpatterns as work_item_template_urls
 from .workspace import urlpatterns as workspace_urls
 from .timezone import urlpatterns as timezone_urls
 from .exporter import urlpatterns as exporter_urls
@@ -34,6 +36,7 @@ urlpatterns = [
     *estimate_urls,
     *external_urls,
     *gmc_feature_urls,
+    *work_item_template_urls,
     *intake_urls,
     *issue_urls,
     *issue_type_urls,
@@ -42,6 +45,7 @@ urlpatterns = [
     *module_urls,
     *notification_urls,
     *page_urls,
+    *page_comment_urls,
     *project_urls,
     *search_urls,
     *state_urls,

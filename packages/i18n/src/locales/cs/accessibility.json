@@ -29,6 +29,12 @@
       "hide_password": "Skrýt heslo",
       "close_alert": "Zavřít upozornění",
       "close_popover": "Zavřít vyskakovací okno"
+    },
+    "app_sidebar": {
+      "open_workspace_menu": "Otevřít nabídku pracovního prostoru",
+      "close_workspace_menu": "Zavřít nabídku pracovního prostoru",
+      "open_extended_sidebar": "Otevřít rozšířený postranní panel",
+      "close_extended_sidebar": "Zavřít rozšířený postranní panel"
     }
   }
 }

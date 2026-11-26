@@ -58,7 +58,11 @@ export const SingleIntegrationCard = observer(function SingleIntegrationCard({ i
   const { config } = useInstance();
   const { allowPermissions } = useUserPermissions();
 
-  const isUserAdmin = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+  const isUserAdmin = allowPermissions(
+    [EUserPermissions.ADMIN],
+    EUserPermissionsLevel.WORKSPACE,
+    workspaceSlug ?? undefined
+  );
   const { isMobile } = usePlatformOS();
   const { startAuth, isConnecting: isInstalling } = useIntegrationPopup({
     provider: integration.provider,
@@ -82,7 +86,7 @@ export const SingleIntegrationCard = observer(function SingleIntegrationCard({ i
     await integrationService
       .deleteWorkspaceIntegration(workspaceSlug, workspaceIntegrationId ?? "")
       .then(() => {
-        mutate<IWorkspaceIntegration[]>(
+        return mutate<IWorkspaceIntegration[]>(
           WORKSPACE_INTEGRATIONS(workspaceSlug),
           (prevData) => prevData?.filter((i) => i.id !== workspaceIntegrationId),
           false

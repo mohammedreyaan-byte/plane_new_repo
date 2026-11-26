@@ -95,6 +95,8 @@
           "message": "Evaluatorii regulii de schimbare a stării nu au putut fi modificați. Te rugăm să încerci din nou."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

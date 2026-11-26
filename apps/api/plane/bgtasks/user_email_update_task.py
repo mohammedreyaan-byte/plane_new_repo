@@ -2,18 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-# Python imports
-import logging
-
 # Third party imports
 from celery import shared_task
 
 # Django imports
-from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 
 # Module imports
-from plane.license.utils.instance_value import get_email_configuration
+from plane.bgtasks.email_task import deliver_email_message
+from plane.license.utils.instance_value import is_smtp_enabled
 from plane.utils.email import generate_plain_text_from_html
 from plane.utils.exception_logger import log_exception
 
@@ -21,42 +18,21 @@ from plane.utils.exception_logger import log_exception
 @shared_task
 def send_email_update_magic_code(email, token):
     try:
-        (
-            EMAIL_HOST,
-            EMAIL_HOST_USER,
-            EMAIL_HOST_PASSWORD,
-            EMAIL_PORT,
-            EMAIL_USE_TLS,
-            EMAIL_USE_SSL,
-            EMAIL_FROM,
-        ) = get_email_configuration()
+        if not is_smtp_enabled():
+            return
 
-        # Send the mail
         subject = "Verify your new email address"
         context = {"code": token, "email": email}
 
         html_content = render_to_string("emails/auth/magic_signin.html", context)
         text_content = generate_plain_text_from_html(html_content)
 
-        connection = get_connection(
-            host=EMAIL_HOST,
-            port=int(EMAIL_PORT),
-            username=EMAIL_HOST_USER,
-            password=EMAIL_HOST_PASSWORD,
-            use_tls=EMAIL_USE_TLS == "1",
-            use_ssl=EMAIL_USE_SSL == "1",
-        )
-
-        msg = EmailMultiAlternatives(
+        deliver_email_message(
             subject=subject,
             body=text_content,
-            from_email=EMAIL_FROM,
-            to=[email],
-            connection=connection,
+            recipients=[email],
+            html_body=html_content,
         )
-        msg.attach_alternative(html_content, "text/html")
-        msg.send()
-        logging.getLogger("plane.worker").info("Email sent successfully.")
         return
     except Exception as e:
         log_exception(e)
@@ -65,49 +41,24 @@ def send_email_update_magic_code(email, token):
 
 @shared_task
 def send_email_update_confirmation(email):
-    """
-    Send a confirmation email to the user after their email address has been successfully updated.
+    """Send a confirmation email after a user's email address was updated."""
 
-    Args:
-        email: The new email address that was successfully updated
-    """
     try:
-        (
-            EMAIL_HOST,
-            EMAIL_HOST_USER,
-            EMAIL_HOST_PASSWORD,
-            EMAIL_PORT,
-            EMAIL_USE_TLS,
-            EMAIL_USE_SSL,
-            EMAIL_FROM,
-        ) = get_email_configuration()
+        if not is_smtp_enabled():
+            return
 
-        # Send the confirmation email
         subject = "Plane email address successfully updated"
         context = {"email": email}
 
         html_content = render_to_string("emails/user/email_updated.html", context)
         text_content = generate_plain_text_from_html(html_content)
 
-        connection = get_connection(
-            host=EMAIL_HOST,
-            port=int(EMAIL_PORT),
-            username=EMAIL_HOST_USER,
-            password=EMAIL_HOST_PASSWORD,
-            use_tls=EMAIL_USE_TLS == "1",
-            use_ssl=EMAIL_USE_SSL == "1",
-        )
-
-        msg = EmailMultiAlternatives(
+        deliver_email_message(
             subject=subject,
             body=text_content,
-            from_email=EMAIL_FROM,
-            to=[email],
-            connection=connection,
+            recipients=[email],
+            html_body=html_content,
         )
-        msg.attach_alternative(html_content, "text/html")
-        msg.send()
-        logging.getLogger("plane.worker").info(f"Email update confirmation sent successfully to {email}.")
         return
     except Exception as e:
         log_exception(e)

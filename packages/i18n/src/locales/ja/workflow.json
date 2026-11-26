@@ -95,6 +95,8 @@
           "message": "状態変更ルールのレビューアが変更できませんでした。もう一度お試しください。"
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

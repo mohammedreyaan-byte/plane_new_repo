@@ -106,6 +106,7 @@ from .page import (
     PageBinaryUpdateSerializer,
     PageVersionDetailSerializer,
 )
+from .page_comment import PageCommentSerializer
 
 from .estimate import (
     EstimateSerializer,
@@ -137,6 +138,8 @@ from .draft import (
     DraftIssueSerializer,
     DraftIssueDetailSerializer,
 )
+from .work_item_templates import WorkItemTemplateSerializer
+
 from .gmc_features import (
     AutomationRuleSerializer,
     AutomationRunSerializer,

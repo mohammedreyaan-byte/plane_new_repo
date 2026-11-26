@@ -14,15 +14,13 @@ import { NAMESPACES, DEFAULT_NAMESPACE } from "../constants/namespaces";
 // client resolve keys at different times, which produced hydration mismatches and raw
 // i18n keys in the UI until a namespace finished loading.
 import enResources from "../locales/en";
+import { loadLocaleResource } from "./locale-loaders.generated";
 
 import type { i18n as I18nInstance } from "i18next";
 
 export const i18nInstance: I18nInstance = i18n.createInstance();
 
-i18nInstance
-  .use(ICU)
-  .use(initReactI18next)
-  .use(resourcesToBackend((language: string, namespace: string) => import(`../locales/${language}/${namespace}.json`)));
+i18nInstance.use(ICU).use(initReactI18next).use(resourcesToBackend(loadLocaleResource));
 
 const initialLng =
   typeof window !== "undefined" ? localStorage.getItem(LANGUAGE_STORAGE_KEY) || FALLBACK_LANGUAGE : FALLBACK_LANGUAGE;

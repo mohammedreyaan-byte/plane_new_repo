@@ -28,7 +28,13 @@ function WorkspaceIntegrationsPage({ params }: Route.ComponentProps) {
   const { t } = useTranslation();
   const { currentWorkspace } = useWorkspace();
   const { workspaceUserInfo, allowPermissions } = useUserPermissions();
-  const canPerformWorkspaceAdminActions = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+  // Resolve the role against the route slug. Relying on the router store alone
+  // leaves the page dimmed/greyed out during direct navigation before hydration.
+  const canPerformWorkspaceAdminActions = allowPermissions(
+    [EUserPermissions.ADMIN],
+    EUserPermissionsLevel.WORKSPACE,
+    workspaceSlug
+  );
   const pageTitle = currentWorkspace?.name
     ? `${currentWorkspace.name} - ${t("workspace_settings.settings.integrations.title")}`
     : undefined;
@@ -40,7 +46,7 @@ function WorkspaceIntegrationsPage({ params }: Route.ComponentProps) {
   return (
     <SettingsContentWrapper header={<IntegrationsWorkspaceSettingsHeader />}>
       <PageHead title={pageTitle} />
-      <section className={`w-full ${canPerformWorkspaceAdminActions ? "" : "opacity-60"}`}>
+      <section className="w-full">
         <SettingsHeading
           title={t("workspace_settings.settings.integrations.heading")}
           description={t("workspace_settings.settings.integrations.description")}

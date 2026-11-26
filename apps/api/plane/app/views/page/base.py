@@ -16,6 +16,7 @@ from django.db.models import (
     Value,
     UUIDField,
     Count,
+    Subquery,
     Case,
     When,
     IntegerField,
@@ -43,6 +44,7 @@ from plane.db.models import (
     ProjectMember,
     ProjectPage,
     Project,
+    PageComment,
     UserRecentVisit,
 )
 from plane.utils.error_codes import ERROR_CODES
@@ -100,6 +102,18 @@ class PageViewSet(BaseViewSet):
             .select_related("workspace")
             .select_related("owned_by")
             .annotate(is_favorite=Exists(subquery))
+            .annotate(
+                comment_count=Coalesce(
+                    Subquery(
+                        PageComment.objects.filter(page_id=OuterRef("pk"), deleted_at__isnull=True)
+                        .order_by()
+                        .values("page_id")
+                        .annotate(total=Count("id"))
+                        .values("total")[:1]
+                    ),
+                    Value(0),
+                )
+            )
             .order_by(self.request.GET.get("order_by", "-created_at"))
             .prefetch_related("labels")
             .order_by("-is_favorite", "-created_at")

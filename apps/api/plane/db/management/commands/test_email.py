@@ -2,66 +2,48 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
+from django.core.validators import validate_email
 from django.template.loader import render_to_string
-from django.utils.html import strip_tags
 
 # Module imports
-from plane.license.utils.instance_value import get_email_configuration
+from plane.license.utils.instance_value import is_smtp_enabled
+from plane.utils.email import generate_plain_text_from_html
+from plane.utils.smtp import SMTPConfigurationError, send_email_message
 
 
 class Command(BaseCommand):
-    """Django command to pause execution until db is available"""
+    """Send a test email through the same SMTP path used by notifications."""
 
     def add_arguments(self, parser):
-        # Positional argument
         parser.add_argument("to_email", type=str, help="receiver's email")
 
     def handle(self, *args, **options):
-        receiver_email = options.get("to_email")
-
+        receiver_email = str(options.get("to_email") or "").strip()
         if not receiver_email:
             raise CommandError("Receiver email is required")
 
-        (
-            EMAIL_HOST,
-            EMAIL_HOST_USER,
-            EMAIL_HOST_PASSWORD,
-            EMAIL_PORT,
-            EMAIL_USE_TLS,
-            EMAIL_USE_SSL,
-            EMAIL_FROM,
-        ) = get_email_configuration()
+        try:
+            validate_email(receiver_email)
+        except ValidationError:
+            raise CommandError("A valid receiver email address is required") from None
 
-        connection = get_connection(
-            host=EMAIL_HOST,
-            port=int(EMAIL_PORT),
-            username=EMAIL_HOST_USER,
-            password=EMAIL_HOST_PASSWORD,
-            use_tls=EMAIL_USE_TLS == "1",
-            use_ssl=EMAIL_USE_SSL == "1",
-            timeout=30,
-        )
-        # Prepare email details
-        subject = "Test email from Plane"
+        if not is_smtp_enabled():
+            self.stderr.write("SMTP is disabled; no test email was sent.")
+            return
 
         html_content = render_to_string("emails/test_email.html")
-        text_content = strip_tags(html_content)
+        text_content = generate_plain_text_from_html(html_content)
 
-        self.stdout.write(self.style.SUCCESS("Trying to send test email..."))
-
-        # Send the email
+        self.stdout.write("Trying to send test email...")
         try:
-            msg = EmailMultiAlternatives(
-                subject=subject,
+            send_email_message(
+                subject="Test email from Plane",
                 body=text_content,
-                from_email=EMAIL_FROM,
-                to=[receiver_email],
-                connection=connection,
+                recipients=[receiver_email],
+                html_body=html_content,
             )
-            msg.attach_alternative(html_content, "text/html")
-            msg.send()
             self.stdout.write(self.style.SUCCESS("Email successfully sent"))
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Error: Email could not be delivered due to {e}"))
+        except SMTPConfigurationError as error:
+            self.stderr.write(f"Error: Email could not be delivered due to {error}")

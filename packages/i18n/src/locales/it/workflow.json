@@ -95,6 +95,8 @@
           "message": "Revisori cambiamento stato non può essere modificato. Per favore riprova."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

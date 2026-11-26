@@ -484,6 +484,16 @@
         "heading": "Скрипти",
         "new_script": "Новий скрипт",
         "description": "Автоматизуйте свої робочі процеси за допомогою користувацьких скриптів і правил автоматизації."
+      },
+      "slack": {
+        "description": "Connect a Slack workspace, select a channel, and choose which work item events post notifications.",
+        "heading": "Slack integration",
+        "title": "Slack"
+      },
+      "work_item_templates": {
+        "description": "Create reusable sets of work item field defaults for this workspace.",
+        "heading": "Work item templates",
+        "title": "Work item templates"
       }
     },
     "empty_state": {

@@ -29,6 +29,12 @@
       "hide_password": "Sembunyikan kata sandi",
       "close_alert": "Tutup peringatan",
       "close_popover": "Tutup popover"
+    },
+    "app_sidebar": {
+      "open_workspace_menu": "Buka menu ruang kerja",
+      "close_workspace_menu": "Tutup menu ruang kerja",
+      "open_extended_sidebar": "Buka bilah sisi diperluas",
+      "close_extended_sidebar": "Tutup bilah sisi diperluas"
     }
   }
 }

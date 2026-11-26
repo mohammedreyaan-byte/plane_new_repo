@@ -95,6 +95,8 @@
           "message": "스테이트 변경 규칙 리뷰어를 수정할 수 없습니다. 다시 시도하세요."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

@@ -95,6 +95,8 @@
           "message": "Durum değişikliği kuralı inceleyicileri değiştirilemedi. Lütfen tekrar deneyin."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

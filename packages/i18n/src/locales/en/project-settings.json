@@ -186,6 +186,11 @@
       "heading": "Initiatives",
       "description": "Manage strategic initiatives, track linked modules and epics, and review the roadmap."
     },
+    "work_item_templates": {
+      "label": "Work item templates",
+      "heading": "Work item templates",
+      "description": "Create reusable sets of work item field defaults for this project."
+    },
     "automations": {
       "label": "Automations",
       "heading": "Automations",
@@ -531,6 +536,7 @@
           }
         }
       }
-    }
+    },
+    "label": "Project settings"
   }
 }

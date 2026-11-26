@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{ invited_email }} {{ response }} your invitation to {{ workspace_name }}</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 24px;
+      font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        &quot;Segoe UI&quot;,
+        sans-serif;
+      color: #474747;
+      background-color: #f9f9f9;
+    "
+  >
+    <p>Hello,</p>
+    <p>
+      <strong>{{ invited_email }}</strong> has {{ response }} your invitation to join
+      <strong>{{ workspace_name }}</strong> on Plane.
+    </p>
+    <p>
+      You can open the workspace at
+      <a href="{{ workspace_url }}">{{ workspace_url }}</a>.
+    </p>
+    <p>Regards,<br />Team Plane</p>
+  </body>
+</html>

@@ -19,7 +19,8 @@ from django.db.models.functions import Cast, Concat
 
 # Module imports
 from plane.db.models import Issue
-from plane.license.utils.instance_value import get_email_configuration
+from plane.license.utils.instance_value import get_smtp_configuration, is_smtp_enabled
+from plane.utils.smtp import SMTPConfigurationError, validate_smtp_configuration
 from plane.utils.analytics_plot import build_graph_plot
 from plane.utils.email import generate_plain_text_from_html
 from plane.utils.exception_logger import log_exception
@@ -51,40 +52,48 @@ MODULE_ID = "issue_module__module_id"
 
 def send_export_email(email, slug, csv_buffer, rows):
     """Helper function to send export email."""
+    if not is_smtp_enabled():
+        return
+
     subject = "Your Export is ready"
     html_content = render_to_string("emails/exports/analytics.html", {})
     text_content = generate_plain_text_from_html(html_content)
 
     csv_buffer.seek(0)
 
-    (
-        EMAIL_HOST,
-        EMAIL_HOST_USER,
-        EMAIL_HOST_PASSWORD,
-        EMAIL_PORT,
-        EMAIL_USE_TLS,
-        EMAIL_USE_SSL,
-        EMAIL_FROM,
-    ) = get_email_configuration()
-
-    connection = get_connection(
-        host=EMAIL_HOST,
-        port=int(EMAIL_PORT),
-        username=EMAIL_HOST_USER,
-        password=EMAIL_HOST_PASSWORD,
-        use_tls=EMAIL_USE_TLS == "1",
-        use_ssl=EMAIL_USE_SSL == "1",
-    )
-
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=text_content,
-        from_email=EMAIL_FROM,
-        to=[email],
-        connection=connection,
-    )
-    msg.attach(f"{slug}-analytics.csv", csv_buffer.getvalue())
-    msg.send(fail_silently=False)
+    configuration = get_smtp_configuration()
+    connection = None
+    try:
+        # Attachment-bearing mail keeps its own connection, but uses the shared
+        # configuration validation so disabled/invalid SMTP never crashes a worker.
+        validate_smtp_configuration(configuration)
+        connection = get_connection(
+            host=str(configuration.get("EMAIL_HOST") or "").strip(),
+            port=int(configuration.get("EMAIL_PORT") or 587),
+            username=str(configuration.get("EMAIL_HOST_USER") or "").strip() or None,
+            password=configuration.get("EMAIL_HOST_PASSWORD") or None,
+            use_tls=str(configuration.get("EMAIL_USE_TLS")).lower() in ("1", "true", "yes"),
+            use_ssl=str(configuration.get("EMAIL_USE_SSL")).lower() in ("1", "true", "yes"),
+            timeout=int(configuration.get("EMAIL_TIMEOUT") or 30),
+        )
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_content,
+            from_email=str(configuration.get("EMAIL_FROM")).strip(),
+            to=[email],
+            connection=connection,
+        )
+        msg.attach(f"{slug}-analytics.csv", csv_buffer.getvalue())
+        msg.send(fail_silently=False)
+    except SMTPConfigurationError as error:
+        log_exception(error, warning=True)
+    except Exception as error:
+        log_exception(error, warning=True)
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
     return
 
 

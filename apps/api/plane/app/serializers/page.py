@@ -24,6 +24,7 @@ from plane.db.models import (
 
 class PageSerializer(BaseSerializer):
     is_favorite = serializers.BooleanField(read_only=True)
+    comment_count = serializers.IntegerField(read_only=True, default=0)
     labels = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Label.objects.all()),
         write_only=True,
@@ -44,6 +45,7 @@ class PageSerializer(BaseSerializer):
             "labels",
             "parent",
             "is_favorite",
+            "comment_count",
             "is_locked",
             "archived_at",
             "workspace",

@@ -29,6 +29,12 @@
       "hide_password": "Şifreyi gizle",
       "close_alert": "Uyarıyı kapat",
       "close_popover": "Açılır pencereyi kapat"
+    },
+    "app_sidebar": {
+      "open_workspace_menu": "Çalışma alanı menüsünü aç",
+      "close_workspace_menu": "Çalışma alanı menüsünü kapat",
+      "open_extended_sidebar": "Genişletilmiş kenar çubuğunu aç",
+      "close_extended_sidebar": "Genişletilmiş kenar çubuğunu kapat"
     }
   }
 }

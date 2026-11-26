@@ -12,6 +12,8 @@ import type {
   IInstanceAdmin,
   IInstanceConfiguration,
   IInstanceInfo,
+  IInstanceSmtpConfiguration,
+  TInstanceSmtpConfigurationUpdate,
   TPage,
 } from "@plane/types";
 // api service
@@ -114,13 +116,37 @@ export class InstanceService extends APIService {
   }
 
   /**
+   * Fetches the dedicated SMTP configuration for the instance.
+   * The password is never returned; `EMAIL_HOST_PASSWORD_SET` indicates storage.
+   */
+  async smtpConfiguration(): Promise<IInstanceSmtpConfiguration> {
+    return this.get("/api/instances/smtp/")
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
+   * Creates or updates the dedicated SMTP configuration for the instance.
+   * Connection validation happens on the server when SMTP is enabled.
+   */
+  async updateSmtpConfiguration(data: TInstanceSmtpConfigurationUpdate): Promise<IInstanceSmtpConfiguration> {
+    return this.patch("/api/instances/smtp/", data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /**
    * Sends a test email to the specified receiver to test SMTP configuration
    * @param {string} receiverEmail Email address to send the test email to
    * @returns {Promise<void>} Promise resolving to void
    * @throws {Error} If the API request fails
    */
   async sendTestEmail(receiverEmail: string): Promise<void> {
-    return this.post("/api/instances/email-credentials-check/", {
+    return this.post("/api/instances/smtp/test-email/", {
       receiver_email: receiverEmail,
     })
       .then((response) => response?.data)

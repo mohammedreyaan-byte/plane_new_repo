@@ -26,7 +26,11 @@ function WorkspaceSlackSettingsPage({ params }: Route.ComponentProps) {
   const { t } = useTranslation();
   const { currentWorkspace } = useWorkspace();
   const { workspaceUserInfo, allowPermissions } = useUserPermissions();
-  const canPerformWorkspaceAdminActions = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
+  const canPerformWorkspaceAdminActions = allowPermissions(
+    [EUserPermissions.ADMIN],
+    EUserPermissionsLevel.WORKSPACE,
+    workspaceSlug
+  );
   const pageTitle = currentWorkspace?.name
     ? `${currentWorkspace.name} - ${t("workspace_settings.settings.slack.title")}`
     : undefined;

@@ -484,6 +484,16 @@
         "heading": "Skripte",
         "new_script": "Neues Skript",
         "description": "Automatisieren Sie Ihre Workflows mit benutzerdefinierten Skripten und Automatisierungsregeln."
+      },
+      "slack": {
+        "description": "Connect a Slack workspace, select a channel, and choose which work item events post notifications.",
+        "heading": "Slack integration",
+        "title": "Slack"
+      },
+      "work_item_templates": {
+        "description": "Create reusable sets of work item field defaults for this workspace.",
+        "heading": "Work item templates",
+        "title": "Work item templates"
       }
     },
     "empty_state": {

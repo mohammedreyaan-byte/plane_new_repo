@@ -52,6 +52,10 @@ app.conf.beat_schedule = {
         "schedule": schedule(run_every=timedelta(minutes=METRICS_PUSH_INTERVAL_MINUTES)),
     },
     # Occurs once every day
+    "check-every-day-to-send-due-date-reminders": {
+        "task": "plane.bgtasks.due_date_reminder_task.send_due_date_reminders",
+        "schedule": crontab(hour=8, minute=0),  # UTC 08:00
+    },
     "check-every-day-to-delete-hard-delete": {
         "task": "plane.bgtasks.deletion_task.hard_delete",
         "schedule": crontab(hour=0, minute=0),  # UTC 00:00

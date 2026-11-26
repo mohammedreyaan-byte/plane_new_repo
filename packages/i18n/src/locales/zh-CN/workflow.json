@@ -95,6 +95,8 @@
           "message": "状态更改规则移交人不能被修改。请重试。"
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

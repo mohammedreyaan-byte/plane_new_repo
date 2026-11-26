@@ -29,6 +29,12 @@
       "hide_password": "Nascondi password",
       "close_alert": "Chiudi avviso",
       "close_popover": "Chiudi popover"
+    },
+    "app_sidebar": {
+      "open_workspace_menu": "Apri menu dello spazio di lavoro",
+      "close_workspace_menu": "Chiudi menu dello spazio di lavoro",
+      "open_extended_sidebar": "Apri barra laterale estesa",
+      "close_extended_sidebar": "Chiudi barra laterale estesa"
     }
   }
 }

@@ -521,6 +521,22 @@
           }
         }
       }
-    }
+    },
+    "import": {
+      "description": "Bring work items into this project from CSV, Jira or GitHub.",
+      "heading": "Import work items",
+      "label": "Import"
+    },
+    "initiatives": {
+      "description": "Manage strategic initiatives, track linked modules and epics, and review the roadmap.",
+      "heading": "Initiatives",
+      "label": "Initiatives"
+    },
+    "work_item_templates": {
+      "description": "Create reusable sets of work item field defaults for this project.",
+      "heading": "Work item templates",
+      "label": "Work item templates"
+    },
+    "label": "Project settings"
   }
 }

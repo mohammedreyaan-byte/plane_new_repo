@@ -95,6 +95,8 @@
           "message": "Recenzenci reguły zmiany stanu nie mogli zostać zmodyfikowani. Spróbuj ponownie."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

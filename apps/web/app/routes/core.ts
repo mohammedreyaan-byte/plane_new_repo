@@ -298,6 +298,10 @@ export const coreRoutes: RouteConfigEntry[] = [
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/work-item-types/page.tsx"
           ),
           route(
+            ":workspaceSlug/settings/work-item-templates",
+            "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/work-item-templates/page.tsx"
+          ),
+          route(
             ":workspaceSlug/settings/billing",
             "./(all)/[workspaceSlug]/(settings)/settings/(workspace)/billing/page.tsx"
           ),
@@ -371,6 +375,10 @@ export const coreRoutes: RouteConfigEntry[] = [
             route(
               ":workspaceSlug/settings/projects/:projectId/work-item-types",
               "./(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/work-item-types/page.tsx"
+            ),
+            route(
+              ":workspaceSlug/settings/projects/:projectId/work-item-templates",
+              "./(all)/[workspaceSlug]/(settings)/settings/projects/[projectId]/work-item-templates/page.tsx"
             ),
             route(
               ":workspaceSlug/settings/projects/:projectId/workflows",

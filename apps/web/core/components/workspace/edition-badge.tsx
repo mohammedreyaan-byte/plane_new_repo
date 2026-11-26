@@ -30,7 +30,7 @@ export const WorkspaceEditionBadge = observer(function WorkspaceEditionBadge() {
         isOpen={isPaidPlanPurchaseModalOpen}
         handleClose={() => setIsPaidPlanPurchaseModalOpen(false)}
       />
-      <Tooltip tooltipContent={`Version: v${packageJson.version}`} isMobile={isMobile}>
+      <Tooltip tooltipContent={`${t("version")}: v${packageJson.version}`} isMobile={isMobile}>
         <Button
           variant="tertiary"
           size="lg"

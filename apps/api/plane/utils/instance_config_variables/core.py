@@ -211,6 +211,30 @@ smtp_config_variables = [
         "category": "SMTP",
         "is_encrypted": False,
     },
+    {
+        "key": "EMAIL_TIMEOUT",
+        "value": os.environ.get("EMAIL_TIMEOUT", "30"),
+        "category": "SMTP",
+        "is_encrypted": False,
+    },
+    {
+        "key": "EMAIL_LAST_TEST_STATUS",
+        "value": "",
+        "category": "SMTP",
+        "is_encrypted": False,
+    },
+    {
+        "key": "EMAIL_LAST_TEST_MESSAGE",
+        "value": "",
+        "category": "SMTP",
+        "is_encrypted": False,
+    },
+    {
+        "key": "EMAIL_LAST_TEST_AT",
+        "value": "",
+        "category": "SMTP",
+        "is_encrypted": False,
+    },
 ]
 
 llm_config_variables = [

@@ -29,6 +29,12 @@
       "hide_password": "Приховати пароль",
       "close_alert": "Закрити сповіщення",
       "close_popover": "Закрити спливаюче вікно"
+    },
+    "app_sidebar": {
+      "open_workspace_menu": "Відкрити меню робочого простору",
+      "close_workspace_menu": "Закрити меню робочого простору",
+      "open_extended_sidebar": "Відкрити розширену бічну панель",
+      "close_extended_sidebar": "Закрити розширену бічну панель"
     }
   }
 }

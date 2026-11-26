@@ -183,6 +183,7 @@ from .page.base import (
     PageDuplicateEndpoint,
 )
 from .page.version import PageVersionEndpoint
+from .page.comment import PageCommentViewSet
 
 from .search.base import GlobalSearchEndpoint, SearchEndpoint
 from .search.issue import IssueSearchEndpoint
@@ -305,4 +306,11 @@ from .gmc_features import (
     WebhookEventListEndpoint,
     WorkspaceIntegrationDetailEndpoint,
     WorkspaceIntegrationListEndpoint,
+)
+from .work_item_templates import (
+    ProjectWorkItemTemplateDetailEndpoint,
+    ProjectWorkItemTemplateEndpoint,
+    WorkspaceWorkItemTemplateDetailEndpoint,
+    WorkspaceWorkItemTemplateEndpoint,
+    WorkspaceWorkItemTemplateOptionsEndpoint,
 )

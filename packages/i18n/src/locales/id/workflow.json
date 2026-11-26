@@ -95,6 +95,8 @@
           "message": "Reviewer aturan perubahan status tidak dapat dimodifikasi. Silakan coba lagi."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

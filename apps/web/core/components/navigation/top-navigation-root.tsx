@@ -9,6 +9,7 @@ import { observer } from "mobx-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 import { Button } from "@plane/propel/button";
 import { cn } from "@plane/utils";
 import { useCommandPalette } from "@/hooks/store/use-command-palette";
@@ -31,6 +32,8 @@ export const TopNavigationRoot = observer(function TopNavigationRoot() {
   // router
   const { workspaceSlug } = useParams();
   const pathname = usePathname();
+  // translation
+  const { t } = useTranslation();
 
   // store hooks
   const { unreadNotificationsCount, getUnreadNotificationsCount } = useWorkspaceNotifications();
@@ -67,7 +70,11 @@ export const TopNavigationRoot = observer(function TopNavigationRoot() {
       {/* Workspace Menu */}
       <div className="flex flex-1 shrink-0 items-center gap-3">
         {/* Greenmen Consulting branding */}
-        <Link href={`/${workspaceSlug?.toString()}/`} className="flex shrink-0 items-center" aria-label="Greenmen Consulting">
+        <Link
+          href={`/${workspaceSlug?.toString()}/`}
+          className="flex shrink-0 items-center"
+          aria-label="Greenmen Consulting"
+        >
           <img src="/gmc/gmc-icon.png" alt="Greenmen Consulting" className="h-6 w-auto md:hidden" />
           <img src="/gmc/gmc-logo.png" alt="Greenmen Consulting" className="hidden h-7 w-auto md:block" />
         </Link>
@@ -81,14 +88,14 @@ export const TopNavigationRoot = observer(function TopNavigationRoot() {
           size="lg"
           onClick={() => toggleCreateIssueModal(true)}
           disabled={!canCreateIssue}
-          aria-label="Create work item"
+          aria-label={t("create_work_item")}
         >
-          + Create
+          + {t("common.create")}
         </Button>
       </div>
       {/* Additional Actions */}
       <div className="flex flex-1 shrink-0 items-center justify-end gap-1">
-        <Tooltip tooltipContent="Inbox" position="bottom">
+        <Tooltip tooltipContent={t("sidebar.inbox")} position="bottom">
           <AppSidebarItem
             variant="link"
             item={{

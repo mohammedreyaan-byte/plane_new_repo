@@ -179,6 +179,11 @@
         "page_title": "Work with your Plane data in available apps or your own.",
         "page_description": "View all the integrations in use by this workspace or you."
       },
+      "work_item_templates": {
+        "title": "Work item templates",
+        "heading": "Work item templates",
+        "description": "Create reusable sets of work item field defaults for this workspace."
+      },
       "slack": {
         "title": "Slack",
         "heading": "Slack integration",

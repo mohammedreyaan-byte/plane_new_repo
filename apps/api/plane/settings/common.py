@@ -294,7 +294,28 @@ TIME_ZONE = "UTC"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Email settings
+def _bounded_int_env(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, default) or default)
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+ENABLE_SMTP = os.environ.get("ENABLE_SMTP", "0").lower() in ("1", "true", "yes")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587") or 587)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0").lower() in ("1", "true", "yes")
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30") or 30)
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
+DEFAULT_FROM_EMAIL = EMAIL_FROM or "webmaster@localhost"
+# Bounded retries for failed notification deliveries.
+EMAIL_DELIVERY_MAX_ATTEMPTS = _bounded_int_env("EMAIL_DELIVERY_MAX_ATTEMPTS", 3, 1, 10)
+EMAIL_RETRY_BACKOFF_SECONDS = _bounded_int_env("EMAIL_RETRY_BACKOFF_SECONDS", 300, 1, 3600)
 
 # Storage Settings
 # Use Minio settings
@@ -341,6 +362,9 @@ CELERY_IMPORTS = (
     "plane.bgtasks.exporter_expired_task",
     "plane.bgtasks.file_asset_task",
     "plane.bgtasks.email_notification_task",
+    "plane.bgtasks.email_task",
+    "plane.bgtasks.due_date_reminder_task",
+    "plane.bgtasks.workspace_invitation_response_task",
     "plane.bgtasks.cleanup_task",
     "plane.license.bgtasks.telemetry_metrics",
     # management tasks

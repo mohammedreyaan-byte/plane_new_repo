@@ -18,44 +18,49 @@ import type { Route } from "./+types/page";
 // local
 import { InstanceEmailForm } from "./email-config-form";
 
+const SWR_KEY = "INSTANCE_SMTP_CONFIGURATION";
+
 const InstanceEmailPage = observer(function InstanceEmailPage(_props: Route.ComponentProps) {
   // store
-  const { fetchInstanceConfigurations, formattedConfig, disableEmail } = useInstance();
+  const { fetchSmtpConfiguration, updateSmtpConfiguration, smtpConfiguration } = useInstance();
 
-  const { isLoading } = useSWR("INSTANCE_CONFIGURATIONS", () => fetchInstanceConfigurations());
+  const { isLoading, mutate } = useSWR(SWR_KEY, () => fetchSmtpConfiguration());
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSMTPEnabled, setIsSMTPEnabled] = useState(false);
+  const config = smtpConfiguration;
 
   const handleToggle = async () => {
-    if (isSMTPEnabled) {
-      setIsSubmitting(true);
-      try {
-        await disableEmail();
-        setIsSMTPEnabled(false);
-        setToast({
-          title: "Email feature disabled",
-          message: "Email feature has been disabled",
-          type: TOAST_TYPE.SUCCESS,
-        });
-      } catch (_error) {
-        setToast({
-          title: "Error disabling email",
-          message: "Failed to disable email feature. Please try again.",
-          type: TOAST_TYPE.ERROR,
-        });
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
+    const nextValue = !isSMTPEnabled;
+    setIsSubmitting(true);
+    try {
+      await updateSmtpConfiguration({ ENABLE_SMTP: nextValue ? "1" : "0" });
+      await mutate();
+      setIsSMTPEnabled(nextValue);
+      setToast({
+        title: nextValue ? "Email feature enabled" : "Email feature disabled",
+        message: nextValue
+          ? "SMTP is enabled. Save your settings and send a test email to verify delivery."
+          : "SMTP delivery is disabled. No email will be sent.",
+        type: TOAST_TYPE.SUCCESS,
+      });
+    } catch (error) {
+      const message = (error as { error?: string })?.error || "Failed to update the email feature. Please try again.";
+      setToast({
+        title: "Error updating email",
+        message,
+        type: TOAST_TYPE.ERROR,
+      });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSMTPEnabled(true);
   };
+
   useEffect(() => {
-    if (formattedConfig) {
-      setIsSMTPEnabled(formattedConfig.ENABLE_SMTP === "1");
+    if (config) {
+      setIsSMTPEnabled(config.ENABLE_SMTP === "1");
     }
-  }, [formattedConfig]);
+  }, [config]);
 
   return (
     <PageWrapper
@@ -65,7 +70,7 @@ const InstanceEmailPage = observer(function InstanceEmailPage(_props: Route.Comp
           <>
             Plane can send useful emails to you and your users from your own instance without talking to the Internet.
             <div className="text-13 font-regular text-tertiary">
-              Set it up below and please test your settings before you save them.&nbsp;
+              Set it up below and send a test email before enabling delivery.&nbsp;
               <span className="text-danger-primary">Misconfigs can lead to email bounces and errors.</span>
             </div>
           </>
@@ -79,10 +84,23 @@ const InstanceEmailPage = observer(function InstanceEmailPage(_props: Route.Comp
         ),
       }}
     >
+      {!isSMTPEnabled && !isLoading && (
+        <div className="max-w-4xl rounded-md border border-subtle p-4 text-13 text-tertiary">
+          SMTP is disabled. No email will be sent. Enable it above to configure delivery.
+        </div>
+      )}
       {isSMTPEnabled && !isLoading && (
         <>
-          {formattedConfig ? (
-            <InstanceEmailForm config={formattedConfig} />
+          {config ? (
+            <InstanceEmailForm
+              config={config}
+              onSaved={async () => {
+                await mutate();
+              }}
+              onTested={async () => {
+                await mutate();
+              }}
+            />
           ) : (
             <Loader className="space-y-10">
               <Loader.Item height="50px" width="75%" />

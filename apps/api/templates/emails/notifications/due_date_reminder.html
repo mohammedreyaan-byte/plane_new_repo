@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Due today: {{ issue_name }}</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 24px;
+      font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        &quot;Segoe UI&quot;,
+        sans-serif;
+      color: #474747;
+      background-color: #f9f9f9;
+    "
+  >
+    <p>Hello,</p>
+    <p>
+      The work item <strong>{{ issue_name }}</strong> in <strong>{{ project_name }}</strong> is due today ({{
+      target_date }}) in <strong>{{ workspace_name }}</strong>.
+    </p>
+    <p>
+      <a href="{{ issue_url }}">Open the work item</a>
+    </p>
+    <p>Regards,<br />Team Plane</p>
+  </body>
+</html>

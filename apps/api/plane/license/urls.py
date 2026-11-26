@@ -6,10 +6,12 @@ from django.urls import path
 
 from plane.license.api.views import (
     EmailCredentialCheckEndpoint,
+    EmailSuppressionEndpoint,
     InstanceAdminEndpoint,
     InstanceAdminSignInEndpoint,
     InstanceAdminSignUpEndpoint,
     InstanceConfigurationEndpoint,
+    InstanceSMTPConfigurationEndpoint,
     DisableEmailFeatureEndpoint,
     InstanceEndpoint,
     SignUpScreenVisitedEndpoint,
@@ -64,6 +66,27 @@ urlpatterns = [
         "email-credentials-check/",
         EmailCredentialCheckEndpoint.as_view(),
         name="email-credential-check",
+    ),
+    path("smtp/", InstanceSMTPConfigurationEndpoint.as_view(), name="instance-smtp"),
+    path(
+        "<uuid:pk>/smtp/",
+        InstanceSMTPConfigurationEndpoint.as_view(),
+        name="instance-smtp-by-id",
+    ),
+    path(
+        "smtp/test-email/",
+        EmailCredentialCheckEndpoint.as_view(),
+        name="instance-smtp-test-email",
+    ),
+    path(
+        "<uuid:pk>/test-email/",
+        EmailCredentialCheckEndpoint.as_view(),
+        name="instance-smtp-test-email-by-id",
+    ),
+    path(
+        "email-suppressions/",
+        EmailSuppressionEndpoint.as_view(),
+        name="email-suppressions",
     ),
     path(
         "workspace-slug-check/",

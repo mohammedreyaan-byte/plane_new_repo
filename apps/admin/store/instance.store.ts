@@ -17,6 +17,8 @@ import type {
   IFormattedInstanceConfiguration,
   IInstanceInfo,
   IInstanceConfig,
+  IInstanceSmtpConfiguration,
+  TInstanceSmtpConfigurationUpdate,
 } from "@plane/types";
 // root store
 import type { RootStore } from "@/store/root.store";
@@ -30,6 +32,7 @@ export interface IInstanceStore {
   config: IInstanceConfig | undefined;
   instanceAdmins: IInstanceAdmin[] | undefined;
   instanceConfigurations: IInstanceConfiguration[] | undefined;
+  smtpConfiguration: IInstanceSmtpConfiguration | undefined;
   // computed
   formattedConfig: IFormattedInstanceConfiguration | undefined;
   // action
@@ -39,6 +42,8 @@ export interface IInstanceStore {
   fetchInstanceAdmins: () => Promise<IInstanceAdmin[] | undefined>;
   fetchInstanceConfigurations: () => Promise<IInstanceConfiguration[] | undefined>;
   updateInstanceConfigurations: (data: Partial<IFormattedInstanceConfiguration>) => Promise<IInstanceConfiguration[]>;
+  fetchSmtpConfiguration: () => Promise<IInstanceSmtpConfiguration | undefined>;
+  updateSmtpConfiguration: (data: TInstanceSmtpConfigurationUpdate) => Promise<IInstanceSmtpConfiguration>;
   disableEmail: () => Promise<void>;
 }
 
@@ -50,6 +55,7 @@ export class InstanceStore implements IInstanceStore {
   config: IInstanceConfig | undefined = undefined;
   instanceAdmins: IInstanceAdmin[] | undefined = undefined;
   instanceConfigurations: IInstanceConfiguration[] | undefined = undefined;
+  smtpConfiguration: IInstanceSmtpConfiguration | undefined = undefined;
   // service
   instanceService;
 
@@ -62,6 +68,7 @@ export class InstanceStore implements IInstanceStore {
       instance: observable,
       instanceAdmins: observable,
       instanceConfigurations: observable,
+      smtpConfiguration: observable.ref,
       // computed
       formattedConfig: computed,
       // actions
@@ -71,6 +78,8 @@ export class InstanceStore implements IInstanceStore {
       updateInstanceInfo: action,
       fetchInstanceConfigurations: action,
       updateInstanceConfigurations: action,
+      fetchSmtpConfiguration: action,
+      updateSmtpConfiguration: action,
     });
 
     this.instanceService = new InstanceService();
@@ -196,6 +205,38 @@ export class InstanceStore implements IInstanceStore {
     }
   };
 
+  /**
+   * Fetches the dedicated SMTP configuration (password is never returned).
+   */
+  fetchSmtpConfiguration = async () => {
+    try {
+      const smtpConfiguration = await this.instanceService.smtpConfiguration();
+      runInAction(() => {
+        this.smtpConfiguration = smtpConfiguration;
+      });
+      return smtpConfiguration;
+    } catch (error) {
+      console.error("Error fetching the SMTP configuration");
+      throw error;
+    }
+  };
+
+  /**
+   * Creates or updates SMTP configuration keys via the dedicated admin endpoint.
+   */
+  updateSmtpConfiguration = async (data: TInstanceSmtpConfigurationUpdate) => {
+    try {
+      const smtpConfiguration = await this.instanceService.updateSmtpConfiguration(data);
+      runInAction(() => {
+        this.smtpConfiguration = smtpConfiguration;
+      });
+      return smtpConfiguration;
+    } catch (error) {
+      console.error("Error updating the SMTP configuration");
+      throw error;
+    }
+  };
+
   disableEmail = async () => {
     const instanceConfigurations = this.instanceConfigurations;
     try {
@@ -207,13 +248,28 @@ export class InstanceStore implements IInstanceStore {
               "EMAIL_PORT",
               "EMAIL_HOST_USER",
               "EMAIL_HOST_PASSWORD",
+              "EMAIL_USE_TLS",
+              "EMAIL_USE_SSL",
               "EMAIL_FROM",
+              "EMAIL_TIMEOUT",
               "ENABLE_SMTP",
+              "EMAIL_LAST_TEST_STATUS",
+              "EMAIL_LAST_TEST_MESSAGE",
+              "EMAIL_LAST_TEST_AT",
             ].includes(config.key)
           )
             return { ...config, value: "" };
           return config;
         });
+        if (this.smtpConfiguration) {
+          this.smtpConfiguration = {
+            ...this.smtpConfiguration,
+            ENABLE_SMTP: "0",
+            EMAIL_LAST_TEST_STATUS: "",
+            EMAIL_LAST_TEST_MESSAGE: "",
+            EMAIL_LAST_TEST_AT: "",
+          };
+        }
       });
       await this.instanceService.disableEmail();
     } catch (_error) {

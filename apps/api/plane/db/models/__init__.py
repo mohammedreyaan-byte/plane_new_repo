@@ -58,8 +58,14 @@ from .issue import (
     IssueDescriptionVersion,
 )
 from .module import Module, ModuleIssue, ModuleLink, ModuleMember, ModuleUserProperties
-from .notification import EmailNotificationLog, Notification, UserNotificationPreference
+from .notification import (
+    EmailNotificationLog,
+    EmailSuppression,
+    Notification,
+    UserNotificationPreference,
+)
 from .page import Page, PageLabel, PageLog, ProjectPage, PageVersion
+from .page_comment import PageComment
 from .project import (
     Project,
     ProjectBaseModel,
@@ -77,6 +83,7 @@ from .state import State, StateGroup, DEFAULT_STATES
 from .user import Account, Profile, User, BotTypeEnum
 from .view import IssueView
 from .webhook import Webhook, WebhookLog
+from .work_item_template import WorkItemTemplate
 from .workspace import (
     Workspace,
     WorkspaceBaseModel,

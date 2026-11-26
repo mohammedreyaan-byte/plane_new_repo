@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-from plane.db.models import ProjectMember, Page
+from plane.db.models import Project, ProjectMember, Page
 from plane.app.permissions import ROLE
 from plane.utils.role_compat import expand_roles
 
@@ -136,4 +136,44 @@ class ProjectPagePermission(BasePermission):
         project_member_exists = self._check_project_action_access(request, role)
         if not project_member_exists:
             return False
+        return True
+
+
+class ProjectPageCommentPermission(ProjectPagePermission):
+    """Page scoped permission for comments.
+
+    Any active project member (including guests) who can view the page may
+    create, read, edit and delete comments. Object level ownership checks for
+    edit/delete are performed in the view.
+    """
+
+    def _check_project_action_access(self, request, role):
+        return role in expand_roles([ADMIN, MEMBER, GUEST])
+
+    def _has_private_page_action_access(self, request, slug, page, project_id):
+        return page.owned_by_id == request.user.id
+
+    def has_permission(self, request, view):
+        allowed = super().has_permission(request, view)
+        if not allowed:
+            return False
+
+        page_id = view.kwargs.get("page_id")
+        if not page_id:
+            return True
+
+        # Guests with restricted visibility cannot view (and therefore cannot
+        # comment on) pages they do not own.
+        role = self._check_project_member_access(request, view.kwargs.get("slug"), view.kwargs.get("project_id"))
+        if role not in expand_roles([ADMIN, MEMBER]) and role in expand_roles([GUEST]):
+            page = Page.objects.filter(
+                id=page_id,
+                workspace__slug=view.kwargs.get("slug"),
+                project_pages__project_id=view.kwargs.get("project_id"),
+                project_pages__deleted_at__isnull=True,
+            ).first()
+            if page and page.owned_by_id != request.user.id:
+                project = Project.objects.filter(pk=view.kwargs.get("project_id")).first()
+                if project and not project.guest_view_all_features:
+                    return False
         return True

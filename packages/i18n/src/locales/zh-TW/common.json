@@ -867,5 +867,31 @@
       "description": "將工作事項匯出為 JSON 檔案。",
       "short_description": "匯出為 JSON"
     }
-  }
+  },
+  "hide": "Hide",
+  "more": "More",
+  "icon_only": "Icon only",
+  "icon_with_name": "Icon with name",
+  "dock_app_rail": "Dock App Rail",
+  "undock_app_rail": "Undock App Rail",
+  "clear_default": "Clear default",
+  "set_as_default": "Set as default",
+  "hide_in_more_menu": "Hide in more menu",
+  "show": "Show",
+  "search_commands": "Search commands...",
+  "main_sidebar": "Main sidebar",
+  "resize_sidebar": "Resize sidebar",
+  "sidebar_peek_view": "Sidebar peek view",
+  "rename_folder": "Rename folder",
+  "aria_labels": {
+    "app_sidebar": {
+      "open_workspace_menu": "開啟工作區選單",
+      "close_workspace_menu": "關閉工作區選單",
+      "open_extended_sidebar": "開啟擴充側邊欄",
+      "close_extended_sidebar": "關閉擴充側邊欄"
+    }
+  },
+  "assignment_changes": "Assignments",
+  "assignment_changes_description": "Notify me when an issue is assigned to someone or its assignees change.",
+  "type": "Type"
 }

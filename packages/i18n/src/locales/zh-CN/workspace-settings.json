@@ -484,6 +484,16 @@
         "heading": "脚本",
         "new_script": "新建脚本",
         "description": "使用自定义脚本和自动化规则自动化您的工作流程。"
+      },
+      "slack": {
+        "description": "Connect a Slack workspace, select a channel, and choose which work item events post notifications.",
+        "heading": "Slack integration",
+        "title": "Slack"
+      },
+      "work_item_templates": {
+        "description": "Create reusable sets of work item field defaults for this workspace.",
+        "heading": "Work item templates",
+        "title": "Work item templates"
       }
     },
     "empty_state": {

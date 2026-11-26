@@ -29,6 +29,16 @@ interface CollisionEntry {
   files: string[];
 }
 
+// Intentional duplicates: the app_sidebar ARIA labels resolve from the default
+// "common" namespace but are also shipped in "accessibility" for namespace
+// consumers. Keep both bundles without flagging them as collisions.
+const ALLOWED_COLLISIONS = new Set([
+  "aria_labels.app_sidebar.open_workspace_menu",
+  "aria_labels.app_sidebar.close_workspace_menu",
+  "aria_labels.app_sidebar.open_extended_sidebar",
+  "aria_labels.app_sidebar.close_extended_sidebar",
+]);
+
 /** Cross-namespace collision check: same flattened key in multiple namespace files. */
 function findCollisions(localeData: LocaleData): CollisionEntry[] {
   const keyToFiles = new Map<string, string[]>();
@@ -45,7 +55,7 @@ function findCollisions(localeData: LocaleData): CollisionEntry[] {
 
   const collisions: CollisionEntry[] = [];
   for (const [key, files] of keyToFiles) {
-    if (files.length > 1) {
+    if (files.length > 1 && !ALLOWED_COLLISIONS.has(key)) {
       collisions.push({ key, files });
     }
   }

@@ -2,18 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
-# Python imports
-from smtplib import (
-    SMTPAuthenticationError,
-    SMTPConnectError,
-    SMTPRecipientsRefused,
-    SMTPSenderRefused,
-    SMTPServerDisconnected,
-)
-
 # Django imports
-from django.core.mail import BadHeaderError, EmailMultiAlternatives, get_connection
-from django.db.models import Q, Case, When, Value
+from django.db.models import Case, Q, Value, When
+from django.utils import timezone
 
 # Third party imports
 from rest_framework import status
@@ -21,12 +12,62 @@ from rest_framework.response import Response
 
 # Module imports
 from .base import BaseAPIView
+from plane.db.models import EmailSuppression
 from plane.license.api.permissions import InstanceAdminPermission
-from plane.license.models import InstanceConfiguration
 from plane.license.api.serializers import InstanceConfigurationSerializer
+from plane.license.models import InstanceConfiguration
 from plane.license.utils.encryption import encrypt_data
+from plane.license.utils.instance_value import (
+    _as_bool,
+    get_smtp_configuration,
+)
 from plane.utils.cache import cache_response, invalidate_cache
-from plane.license.utils.instance_value import get_email_configuration
+from plane.utils.smtp import (
+    SMTPConfigurationError,
+    describe_smtp_error,
+    send_email_message,
+    smtp_configuration_values,
+    suppress_email,
+    validate_smtp_connection,
+)
+
+SMTP_TEST_RESULT_KEYS = ["EMAIL_LAST_TEST_STATUS", "EMAIL_LAST_TEST_MESSAGE", "EMAIL_LAST_TEST_AT"]
+
+SMTP_CONFIG_KEYS = [
+    "ENABLE_SMTP",
+    "EMAIL_HOST",
+    "EMAIL_HOST_USER",
+    "EMAIL_HOST_PASSWORD",
+    "EMAIL_PORT",
+    "EMAIL_FROM",
+    "EMAIL_USE_TLS",
+    "EMAIL_USE_SSL",
+    "EMAIL_TIMEOUT",
+]
+SMTP_CONNECTION_KEYS = [key for key in SMTP_CONFIG_KEYS if key != "ENABLE_SMTP"]
+
+
+def _set_email_test_result(test_status, message):
+    values = {
+        "EMAIL_LAST_TEST_STATUS": test_status,
+        "EMAIL_LAST_TEST_MESSAGE": str(message or "")[:500],
+        "EMAIL_LAST_TEST_AT": timezone.now().isoformat(),
+    }
+    for key, value in values.items():
+        InstanceConfiguration.objects.update_or_create(
+            key=key,
+            defaults={"value": value, "category": "SMTP", "is_encrypted": False},
+        )
+
+
+def _clear_email_test_result():
+    """A changed or disabled configuration invalidates any previous test result."""
+
+    for key in SMTP_TEST_RESULT_KEYS:
+        InstanceConfiguration.objects.update_or_create(
+            key=key,
+            defaults={"value": "", "category": "SMTP", "is_encrypted": False},
+        )
 
 
 class InstanceConfigurationEndpoint(BaseAPIView):
@@ -41,6 +82,17 @@ class InstanceConfigurationEndpoint(BaseAPIView):
     @invalidate_cache(path="/api/instances/configurations/", user=False)
     @invalidate_cache(path="/api/instances/", user=False)
     def patch(self, request):
+        if _as_bool(request.data.get("validate_connection", False)):
+            overrides = {
+                key: request.data[key]
+                for key in SMTP_CONFIG_KEYS
+                if key in request.data and not (key == "EMAIL_HOST_PASSWORD" and not request.data[key])
+            }
+            try:
+                validate_smtp_connection(overrides)
+            except SMTPConfigurationError as error:
+                return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
         configurations = InstanceConfiguration.objects.filter(key__in=request.data.keys())
 
         bulk_configurations = []
@@ -59,24 +111,111 @@ class InstanceConfigurationEndpoint(BaseAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class InstanceSMTPConfigurationEndpoint(BaseAPIView):
+    """Admin API for the singleton instance's SMTP settings."""
+
+    permission_classes = [InstanceAdminPermission]
+
+    def _response_data(self):
+        configuration = get_smtp_configuration()
+        data = smtp_configuration_values(configuration)
+        data.pop("EMAIL_HOST_PASSWORD", None)
+        data["EMAIL_HOST_PASSWORD_SET"] = bool(configuration.get("EMAIL_HOST_PASSWORD"))
+        for key in SMTP_TEST_RESULT_KEYS:
+            data[key] = configuration.get(key, "") or ""
+        return data
+
+    @cache_response(60 * 60 * 2, user=False)
+    def get(self, request):
+        return Response(self._response_data(), status=status.HTTP_200_OK)
+
+    @invalidate_cache(path="/api/instances/smtp/", user=False, multiple=True)
+    @invalidate_cache(path="/api/instances/configurations/", user=False)
+    @invalidate_cache(path="/api/instances/", user=False)
+    def patch(self, request):
+        updates = {}
+        for key in SMTP_CONFIG_KEYS:
+            if key not in request.data:
+                continue
+            value = request.data.get(key)
+            if key in ("ENABLE_SMTP", "EMAIL_USE_TLS", "EMAIL_USE_SSL"):
+                value = "1" if _as_bool(value) else "0"
+            elif key == "EMAIL_PORT":
+                try:
+                    port = int(value)
+                except (TypeError, ValueError):
+                    return Response({"error": "SMTP port must be a number"}, status=status.HTTP_400_BAD_REQUEST)
+                if port < 1 or port > 65535:
+                    return Response(
+                        {"error": "SMTP port must be between 1 and 65535"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                value = str(port)
+            elif key == "EMAIL_TIMEOUT":
+                try:
+                    timeout = int(value)
+                except (TypeError, ValueError):
+                    return Response({"error": "SMTP timeout must be a number"}, status=status.HTTP_400_BAD_REQUEST)
+                if timeout < 1 or timeout > 300:
+                    return Response(
+                        {"error": "SMTP timeout must be between 1 and 300 seconds"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                value = str(timeout)
+            else:
+                value = "" if value is None else str(value).strip()
+            updates[key] = value
+
+        candidate = get_smtp_configuration()
+        candidate_overrides = {
+            key: value
+            for key, value in updates.items()
+            if not (key == "EMAIL_HOST_PASSWORD" and not value)
+        }
+        candidate.update(candidate_overrides)
+        # Enabling the feature is not a connection change. The settings form is
+        # hidden until SMTP is enabled, so validating here would make it
+        # impossible to enter the connection details on a fresh instance.
+        # Connection changes and explicit test emails still validate.
+        if any(key in request.data for key in SMTP_CONNECTION_KEYS) and _as_bool(candidate.get("ENABLE_SMTP")):
+            try:
+                validate_smtp_connection(candidate_overrides)
+            except SMTPConfigurationError as error:
+                return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        for key, value in updates.items():
+            instance_configuration, _ = InstanceConfiguration.objects.get_or_create(
+                key=key,
+                defaults={"category": "SMTP", "is_encrypted": key == "EMAIL_HOST_PASSWORD"},
+            )
+            instance_configuration.value = encrypt_data(value) if key == "EMAIL_HOST_PASSWORD" else value
+            instance_configuration.save(update_fields=["value", "updated_at"])
+
+        if updates:
+            _clear_email_test_result()
+
+        return Response(self._response_data(), status=status.HTTP_200_OK)
+
+
 class DisableEmailFeatureEndpoint(BaseAPIView):
     permission_classes = [InstanceAdminPermission]
 
+    @invalidate_cache(path="/api/instances/smtp/", user=False, multiple=True)
     @invalidate_cache(path="/api/instances/", user=False)
     def delete(self, request):
         try:
             InstanceConfiguration.objects.filter(
-                Q(
-                    key__in=[
-                        "EMAIL_HOST",
-                        "EMAIL_HOST_USER",
-                        "EMAIL_HOST_PASSWORD",
-                        "ENABLE_SMTP",
-                        "EMAIL_PORT",
-                        "EMAIL_FROM",
-                    ]
+                Q(key__in=[*SMTP_CONFIG_KEYS, *SMTP_TEST_RESULT_KEYS])
+            ).update(
+                value=Case(
+                    When(key="ENABLE_SMTP", then=Value("0")),
+                    When(key="EMAIL_PORT", then=Value("587")),
+                    When(key="EMAIL_USE_TLS", then=Value("1")),
+                    When(key="EMAIL_USE_SSL", then=Value("0")),
+                    When(key="EMAIL_TIMEOUT", then=Value("30")),
+                    default=Value(""),
                 )
-            ).update(value=Case(When(key="ENABLE_SMTP", then=Value("0")), default=Value("")))
+            )
             return Response(status=status.HTTP_200_OK)
         except Exception:
             return Response(
@@ -86,86 +225,60 @@ class DisableEmailFeatureEndpoint(BaseAPIView):
 
 
 class EmailCredentialCheckEndpoint(BaseAPIView):
+    permission_classes = [InstanceAdminPermission]
+
+    @invalidate_cache(path="/api/instances/smtp/", user=False, multiple=True)
     def post(self, request):
-        receiver_email = request.data.get("receiver_email", False)
-        if not receiver_email:
+        receiver_email = str(request.data.get("receiver_email", "")).strip()
+        if not receiver_email or "@" not in receiver_email:
             return Response(
-                {"error": "Receiver email is required"},
+                {"error": "A valid receiver email is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        (
-            EMAIL_HOST,
-            EMAIL_HOST_USER,
-            EMAIL_HOST_PASSWORD,
-            EMAIL_PORT,
-            EMAIL_USE_TLS,
-            EMAIL_USE_SSL,
-            EMAIL_FROM,
-        ) = get_email_configuration()
+        configuration = get_smtp_configuration()
+        if not _as_bool(configuration.get("ENABLE_SMTP")):
+            _set_email_test_result("failed", "SMTP is disabled")
+            return Response({"error": "SMTP is disabled"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Configure all the connections
-        connection = get_connection(
-            host=EMAIL_HOST,
-            port=int(EMAIL_PORT),
-            username=EMAIL_HOST_USER,
-            password=EMAIL_HOST_PASSWORD,
-            use_tls=EMAIL_USE_TLS == "1",
-            use_ssl=EMAIL_USE_SSL == "1",
-        )
-        # Prepare email details
-        subject = "Email Notification from Plane"
-        message = "This is a sample email notification sent from Plane application."
-        # Send the email
         try:
-            msg = EmailMultiAlternatives(
-                subject=subject,
-                body=message,
-                from_email=EMAIL_FROM,
-                to=[receiver_email],
-                connection=connection,
+            send_email_message(
+                subject="Email Notification from Plane",
+                body="This is a sample email notification sent from Plane application.",
+                recipients=[receiver_email],
+                configuration=configuration,
             )
-            msg.send(fail_silently=False)
-            return Response({"message": "Email successfully sent."}, status=status.HTTP_200_OK)
-        except BadHeaderError:
-            return Response({"error": "Invalid email header."}, status=status.HTTP_400_BAD_REQUEST)
-        except SMTPAuthenticationError:
-            return Response(
-                {"error": "Invalid credentials provided"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except SMTPConnectError:
-            return Response(
-                {"error": "Could not connect with the SMTP server."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except SMTPSenderRefused:
-            return Response(
-                {"error": "From address is invalid."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except SMTPServerDisconnected:
-            return Response(
-                {"error": "SMTP server disconnected unexpectedly."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except SMTPRecipientsRefused:
-            return Response(
-                {"error": "All recipient addresses were refused."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except TimeoutError:
-            return Response(
-                {"error": "Timeout error while trying to connect to the SMTP server."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except ConnectionError:
-            return Response(
-                {"error": "Network connection error. Please check your internet connection."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except Exception:
-            return Response(
-                {"error": "Could not send email. Please check your configuration"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except SMTPConfigurationError as error:
+            _set_email_test_result("failed", str(error))
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as error:
+            message = describe_smtp_error(error)
+            _set_email_test_result("failed", message)
+            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+        _set_email_test_result("success", "Test email sent successfully")
+        return Response({"message": "Email successfully sent."}, status=status.HTTP_200_OK)
+
+
+class EmailSuppressionEndpoint(BaseAPIView):
+    """Basic bounce handling: list and manage suppressed recipients."""
+
+    permission_classes = [InstanceAdminPermission]
+
+    def get(self, request):
+        suppressions = EmailSuppression.objects.filter(is_active=True).values("id", "email", "reason", "created_at")
+        return Response(list(suppressions), status=status.HTTP_200_OK)
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip()
+        if not email or "@" not in email:
+            return Response({"error": "A valid email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        suppress_email(email, request.data.get("reason", "Suppressed by administrator"))
+        return Response({"message": "Email address suppressed"}, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        email = str(request.data.get("email", "")).strip()
+        if not email:
+            return Response({"error": "A valid email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        EmailSuppression.objects.filter(email__iexact=email).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

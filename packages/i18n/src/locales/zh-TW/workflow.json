@@ -95,6 +95,8 @@
           "message": "無法修改狀態變更規則審核者。請再試一次。"
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

@@ -95,6 +95,8 @@
           "message": "Не вдалося змінити рев'юерів правила зміни стану. Будь ласка, спробуйте ще раз."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

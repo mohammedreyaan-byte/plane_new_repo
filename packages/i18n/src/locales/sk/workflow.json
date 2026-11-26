@@ -95,6 +95,8 @@
           "message": "Recenzenti pravidla zmeny stavu nemohli byť upravení. Skúste to znova."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

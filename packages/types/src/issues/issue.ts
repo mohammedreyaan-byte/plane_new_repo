@@ -100,6 +100,8 @@ export type TIssue = TBaseIssue & {
   tempId?: string;
   // sourceIssueId is used to store the original issue id when creating a copy of an issue. Used in cloning property values. It is not a part of the API response.
   sourceIssueId?: string;
+  // template_id tells the API to merge a work item template during creation.
+  template_id?: string;
   state__group?: TStateGroups | null;
 };
 

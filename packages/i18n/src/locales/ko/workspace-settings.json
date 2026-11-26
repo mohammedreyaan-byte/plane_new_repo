@@ -484,6 +484,16 @@
         "heading": "스크립트",
         "new_script": "새 스크립트",
         "description": "커스텀 스크립트와 자동화 규칙으로 워크플로우를 자동화하세요."
+      },
+      "slack": {
+        "description": "Connect a Slack workspace, select a channel, and choose which work item events post notifications.",
+        "heading": "Slack integration",
+        "title": "Slack"
+      },
+      "work_item_templates": {
+        "description": "Create reusable sets of work item field defaults for this workspace.",
+        "heading": "Work item templates",
+        "title": "Work item templates"
       }
     },
     "empty_state": {

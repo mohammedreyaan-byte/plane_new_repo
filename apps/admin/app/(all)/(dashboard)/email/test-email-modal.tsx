@@ -15,6 +15,7 @@ import { Input } from "@plane/ui";
 type Props = {
   isOpen: boolean;
   handleClose: () => void;
+  onTested?: () => Promise<void> | void;
 };
 
 enum ESendEmailSteps {
@@ -26,7 +27,7 @@ enum ESendEmailSteps {
 const instanceService = new InstanceService();
 
 export function SendTestEmailModal(props: Props) {
-  const { isOpen, handleClose } = props;
+  const { isOpen, handleClose, onTested } = props;
 
   // state
   const [receiverEmail, setReceiverEmail] = useState("");
@@ -61,8 +62,9 @@ export function SendTestEmailModal(props: Props) {
         setError(error?.error || "Failed to send email");
         setSendEmailStep(ESendEmailSteps.FAILED);
       })
-      .finally(() => {
+      .finally(async () => {
         setIsLoading(false);
+        if (onTested) await onTested();
       });
   };
 
@@ -106,7 +108,7 @@ export function SendTestEmailModal(props: Props) {
                       type="email"
                       value={receiverEmail}
                       onChange={(e) => setReceiverEmail(e.target.value)}
-                      placeholder="Receiver email"
+                      placeholder="recipient@example.invalid"
                       className="w-full resize-none text-16"
                       tabIndex={0}
                     />

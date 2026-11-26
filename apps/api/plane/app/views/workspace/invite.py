@@ -27,6 +27,7 @@ from plane.app.serializers import (
 )
 from plane.app.views.base import BaseAPIView
 from plane.bgtasks.event_tracking_task import track_event
+from plane.bgtasks.workspace_invitation_response_task import workspace_invitation_response
 from plane.bgtasks.workspace_invitation_task import workspace_invitation
 from plane.db.models import RoleAuditLog, User, Workspace, WorkspaceMember, WorkspaceMemberInvite
 from plane.utils.cache import invalidate_cache, invalidate_cache_directly
@@ -498,6 +499,9 @@ class WorkspaceJoinEndpoint(BaseAPIView):
     @invalidate_cache(path="/api/users/me/settings/", multiple=True)
     def post(self, request, slug, pk):
         workspace_invite = WorkspaceMemberInvite.objects.get(pk=pk, workspace__slug=slug)
+        inviter = getattr(workspace_invite, "created_by", None)
+        inviter_email = getattr(inviter, "email", "")
+        current_site = base_host(request=request, is_app=True)
 
         token = request.data.get("token", "")
 
@@ -569,6 +573,16 @@ class WorkspaceJoinEndpoint(BaseAPIView):
                         },
                     )
 
+                    if inviter_email:
+                        workspace_invitation_response.delay(
+                            inviter_email,
+                            workspace_invite.email,
+                            workspace_invite.workspace.name,
+                            workspace_invite.workspace.slug,
+                            True,
+                            current_site,
+                        )
+
                     # Delete the invitation
                     workspace_invite.delete()
 
@@ -578,6 +592,15 @@ class WorkspaceJoinEndpoint(BaseAPIView):
                 )
 
             # Workspace invitation rejected
+            if inviter_email:
+                workspace_invitation_response.delay(
+                    inviter_email,
+                    workspace_invite.email,
+                    workspace_invite.workspace.name,
+                    workspace_invite.workspace.slug,
+                    False,
+                    current_site,
+                )
             return Response(
                 {"message": "Workspace Invitation was not accepted"},
                 status=status.HTTP_200_OK,

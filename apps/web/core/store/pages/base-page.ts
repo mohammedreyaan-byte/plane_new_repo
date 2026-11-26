@@ -89,6 +89,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
   description_json: object | undefined;
   description_html: string | undefined;
   color: string | undefined;
+  comment_count: number;
   label_ids: string[] | undefined;
   owned_by: string | undefined;
   access: EPageAccess | undefined;
@@ -126,6 +127,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
     this.description_json = page?.description_json || undefined;
     this.description_html = page?.description_html || undefined;
     this.color = page?.color || undefined;
+    this.comment_count = page?.comment_count ?? 0;
     this.label_ids = page?.label_ids || undefined;
     this.owned_by = page?.owned_by || undefined;
     this.access = page?.access || EPageAccess.PUBLIC;
@@ -151,6 +153,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
       description_json: observable.ref,
       description_html: observable.ref,
       color: observable.ref,
+      comment_count: observable.ref,
       label_ids: observable,
       owned_by: observable.ref,
       access: observable.ref,
@@ -226,6 +229,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
       description_json: this.description_json,
       description_html: this.description_html,
       color: this.color,
+      comment_count: this.comment_count,
       label_ids: this.label_ids,
       owned_by: this.owned_by,
       access: this.access,

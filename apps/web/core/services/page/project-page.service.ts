@@ -6,7 +6,7 @@
 
 // types
 import { API_BASE_URL } from "@plane/constants";
-import type { TDocumentPayload, TPage } from "@plane/types";
+import type { TDocumentPayload, TPage, TPageComment, TPageCommentPaginated, TPageCommentPayload } from "@plane/types";
 // helpers
 // services
 import { APIService } from "@/services/api.service";
@@ -176,6 +176,63 @@ export class ProjectPageService extends APIService {
 
   async duplicate(workspaceSlug: string, projectId: string, pageId: string): Promise<TPage> {
     return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/pages/${pageId}/duplicate/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  private commentsPath(workspaceSlug: string, projectId: string, pageId: string): string {
+    return `/api/workspaces/${workspaceSlug}/projects/${projectId}/pages/${pageId}/comments/`;
+  }
+
+  async fetchComments(
+    workspaceSlug: string,
+    projectId: string,
+    pageId: string,
+    params?: { cursor?: string; perPage?: number }
+  ): Promise<TPageCommentPaginated> {
+    return this.get(this.commentsPath(workspaceSlug, projectId, pageId), {
+      params: {
+        cursor: params?.cursor,
+        per_page: params?.perPage,
+      },
+    })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createComment(
+    workspaceSlug: string,
+    projectId: string,
+    pageId: string,
+    data: TPageCommentPayload
+  ): Promise<TPageComment> {
+    return this.post(this.commentsPath(workspaceSlug, projectId, pageId), data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async updateComment(
+    workspaceSlug: string,
+    projectId: string,
+    pageId: string,
+    commentId: string,
+    data: Partial<TPageCommentPayload>
+  ): Promise<TPageComment> {
+    return this.patch(`${this.commentsPath(workspaceSlug, projectId, pageId)}${commentId}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async deleteComment(workspaceSlug: string, projectId: string, pageId: string, commentId: string): Promise<void> {
+    return this.delete(`${this.commentsPath(workspaceSlug, projectId, pageId)}${commentId}/`)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

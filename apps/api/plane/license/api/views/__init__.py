@@ -7,7 +7,9 @@ from .instance import InstanceEndpoint, SignUpScreenVisitedEndpoint
 
 from .configuration import (
     EmailCredentialCheckEndpoint,
+    EmailSuppressionEndpoint,
     InstanceConfigurationEndpoint,
+    InstanceSMTPConfigurationEndpoint,
     DisableEmailFeatureEndpoint,
 )
 

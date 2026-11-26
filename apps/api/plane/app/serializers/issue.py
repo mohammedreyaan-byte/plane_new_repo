@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.db.models import Q
 
 # Third Party imports
 from rest_framework import serializers
@@ -46,6 +47,7 @@ from plane.db.models import (
     IssueDescriptionVersion,
     ProjectMember,
     EstimatePoint,
+    WorkItemTemplate,
 )
 from plane.utils.content_validator import (
     validate_html_content,
@@ -119,6 +121,62 @@ class IssueCreateSerializer(BaseSerializer):
             "updated_at",
             "completed_at",
         ]
+
+    def to_internal_value(self, data):
+        """Merge a validated work item template before normal field parsing.
+
+        Fields explicitly supplied by the caller always win over template
+        defaults. Doing this here also covers draft intake and imports that use
+        this serializer, not just the main issue create view.
+        """
+        self._template_applied = False
+        template_id = data.get("template_id") if hasattr(data, "get") else None
+        if not template_id:
+            return super().to_internal_value(data)
+
+        payload = dict(data)
+        payload.pop("template_id", None)
+        template = (
+            WorkItemTemplate.objects.filter(
+                pk=template_id,
+                workspace_id=self.context.get("workspace_id"),
+            )
+            .filter(Q(project__isnull=True) | Q(project_id=self.context.get("project_id")))
+            .first()
+        )
+        if template is None:
+            raise serializers.ValidationError({"template_id": "Template is not available for this project"})
+        if not template.is_public:
+            user = self.context.get("user")
+            if user is None or template.created_by_id != user.id:
+                raise serializers.ValidationError({"template_id": "Template is not available"})
+
+        field_map = {
+            "title_template": "name",
+            "description_template": "description_html",
+            "priority": "priority",
+            "label_ids": "label_ids",
+            "assignee_id": "assignee_ids",
+            "type_id": "type_id",
+            "state_id": "state_id",
+            "module_id": "modules",
+            "cycle_id": "cycle",
+        }
+        for source_key, target_key in field_map.items():
+            value = template.template_data.get(source_key)
+            if value is None or value == "" or value == []:
+                continue
+            if target_key in payload:
+                continue
+            if source_key in {"assignee_id", "module_id"}:
+                payload[target_key] = [str(value)]
+            elif source_key == "description_template":
+                payload[target_key] = value
+                payload.setdefault("description", value)
+            else:
+                payload[target_key] = value
+        self._template_applied = True
+        return super().to_internal_value(payload)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -201,6 +259,18 @@ class IssueCreateSerializer(BaseSerializer):
             ).exists()
         ):
             raise serializers.ValidationError("Estimate point is not valid please pass a valid estimate_point_id")
+
+        # Template defaults must not be able to pull in objects from another project.
+        if getattr(self, "_template_applied", False):
+            project_id = self.context.get("project_id")
+            module_ids = attrs.get("modules") or []
+            if module_ids and Module.objects.filter(project_id=project_id, id__in=module_ids).count() != len(
+                set(module_ids)
+            ):
+                raise serializers.ValidationError({"template_id": "Template module is not valid for this project"})
+            cycle_id = attrs.get("cycle")
+            if cycle_id and not Cycle.objects.filter(project_id=project_id, pk=cycle_id).exists():
+                raise serializers.ValidationError({"template_id": "Template cycle is not valid for this project"})
 
         return attrs
 

@@ -29,6 +29,11 @@
     "epics": "Epiky",
     "upgrade_plan": "Apgrejd plán",
     "plane_pro": "Plejn Pro",
-    "business": "Biznis"
+    "business": "Biznis",
+    "backlog": "Backlog",
+    "board": "Board",
+    "initiatives": "Initiatives",
+    "reports": "Reports",
+    "timeline": "Timeline"
   }
 }

@@ -14,8 +14,11 @@ class InstanceConfigurationSerializer(BaseSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Decrypt secrets value
-        if instance.is_encrypted and instance.value is not None:
+        # SMTP passwords are write-only; never return the decrypted value.
+        if instance.key == "EMAIL_HOST_PASSWORD":
+            data["value"] = ""
+        # Decrypt other secrets for the admin configuration screen.
+        elif instance.is_encrypted and instance.value is not None:
             data["value"] = decrypt_data(instance.value)
 
         return data

@@ -95,6 +95,8 @@
           "message": "Os revisores da regra de mudança de estado não puderam ser modificados. Por favor, tente novamente."
         }
       }
-    }
+    },
+    "description": "Control who can move a work item from one state to another, per work item type.",
+    "label": "Workflows"
   }
 }

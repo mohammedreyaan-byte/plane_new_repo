@@ -37,12 +37,15 @@ export const usePagesPaneExtensions = (_params: TPageExtensionHookParams) => {
   const isNavigationPaneOpen =
     !!navigationPaneQueryParam && PAGE_NAVIGATION_PANE_TAB_KEYS.includes(navigationPaneQueryParam);
 
-  const handleOpenNavigationPane = useCallback(() => {
-    const updatedRoute = updateQueryParams({
-      paramsToAdd: { [PAGE_NAVIGATION_PANE_TABS_QUERY_PARAM]: "outline" },
-    });
-    router.push(updatedRoute);
-  }, [router, updateQueryParams]);
+  const handleOpenNavigationPane = useCallback(
+    (tab: TPageNavigationPaneTab = "outline") => {
+      const updatedRoute = updateQueryParams({
+        paramsToAdd: { [PAGE_NAVIGATION_PANE_TABS_QUERY_PARAM]: tab },
+      });
+      router.push(updatedRoute);
+    },
+    [router, updateQueryParams]
+  );
 
   const editorExtensionHandlers: Map<string, unknown> = useMemo(() => {
     const map: Map<string, unknown> = new Map();

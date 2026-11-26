@@ -144,9 +144,30 @@ class EmailNotificationLog(BaseModel):
     entity = models.CharField(max_length=200)
     old_value = models.CharField(max_length=300, blank=True, null=True)
     new_value = models.CharField(max_length=300, blank=True, null=True)
+    attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Email Notification Log"
         verbose_name_plural = "Email Notification Logs"
         db_table = "email_notification_logs"
         ordering = ("-created_at",)
+
+
+class EmailSuppression(BaseModel):
+    """Addresses that should no longer receive transactional email."""
+
+    email = models.EmailField(max_length=255, unique=True)
+    reason = models.CharField(max_length=255, default="Recipient refused")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Email Suppression"
+        verbose_name_plural = "Email Suppressions"
+        db_table = "email_suppressions"
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return self.email
+

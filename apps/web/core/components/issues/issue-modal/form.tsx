@@ -36,6 +36,7 @@ import {
   IssueTypeSelect,
   IssueTitleInput,
 } from "@/components/issues/issue-modal/components";
+import { WorkItemTemplateSelector } from "@/components/issues/issue-modal/components/template-selector";
 // helpers
 // hooks
 import { useIssueModal } from "@/hooks/context/use-issue-modal";
@@ -230,7 +231,7 @@ export const IssueFormRoot = observer(function IssueFormRoot(props: IssueFormPro
       return;
 
     const submitData = !data?.id
-      ? formData
+      ? { ...formData, ...(workItemTemplateId ? { template_id: workItemTemplateId } : {}) }
       : {
           ...getChangedIssuefields(formData, dirtyFields as { [key: string]: boolean | undefined }),
           project_id: getValues<"project_id">("project_id"),
@@ -375,6 +376,7 @@ export const IssueFormRoot = observer(function IssueFormRoot(props: IssueFormPro
                   />
                 </div>
               </div>
+              <WorkItemTemplateSelector />
               {watch("parent_id") && selectedParentIssue && (
                 <div className="pb-4">
                   <IssueParentTag
