@@ -9,3 +9,13 @@ services:
     # Docker Hub no longer serves minio/minio. Use the image already used by
     # the local self-host stack; it includes both minio and mc.
     image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  proxy:
+    # The Caddyfile's site block is keyed by {$SITE_ADDRESS}; without it the
+    # block has no key and Caddy 2.11.3 rejects it. Mirror the demo override.
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS:-:80}"
+    # Cached proxy image has the old Caddyfile baked in, where the global
+    # options block is not first (invalid in Caddy 2.11.3). Bind-mount the
+    # corrected file locally instead of rebuilding the image.
+    volumes:
+      - ./apps/proxy/Caddyfile.ce:/etc/caddy/Caddyfile:ro

@@ -15,15 +15,15 @@ class TestS3StorageSignedURLExpiration:
     @patch.dict(os.environ, {}, clear=True)
     @patch("plane.settings.storage.boto3")
     def test_default_expiration_without_env_variable(self, mock_boto3):
-        """Test that default expiration is 3600 seconds when env variable is not set"""
+        """Test that default expiration is 900 seconds when env variable is not set"""
         # Mock the boto3 client
         mock_boto3.client.return_value = Mock()
 
         # Create S3Storage instance without SIGNED_URL_EXPIRATION env variable
         storage = S3Storage()
 
-        # Assert default expiration is 3600
-        assert storage.signed_url_expiration == 3600
+        # Assert default expiration is 900
+        assert storage.signed_url_expiration == 900
 
     @patch.dict(os.environ, {"SIGNED_URL_EXPIRATION": "30"}, clear=True)
     @patch("plane.settings.storage.boto3")
@@ -78,10 +78,10 @@ class TestS3StorageSignedURLExpiration:
         # Call generate_presigned_post without explicit expiration
         storage.generate_presigned_post("test-object", "image/png", 1024)
 
-        # Assert that the boto3 method was called with the default expiration (3600)
+        # Assert that the boto3 method was called with the default expiration (900)
         mock_s3_client.generate_presigned_post.assert_called_once()
         call_kwargs = mock_s3_client.generate_presigned_post.call_args[1]
-        assert call_kwargs["ExpiresIn"] == 3600
+        assert call_kwargs["ExpiresIn"] == 900
 
     @patch.dict(
         os.environ,
@@ -140,10 +140,10 @@ class TestS3StorageSignedURLExpiration:
         # Call generate_presigned_url without explicit expiration
         storage.generate_presigned_url("test-object")
 
-        # Assert that the boto3 method was called with the default expiration (3600)
+        # Assert that the boto3 method was called with the default expiration (900)
         mock_s3_client.generate_presigned_url.assert_called_once()
         call_kwargs = mock_s3_client.generate_presigned_url.call_args[1]
-        assert call_kwargs["ExpiresIn"] == 3600
+        assert call_kwargs["ExpiresIn"] == 900
 
     @patch.dict(
         os.environ,

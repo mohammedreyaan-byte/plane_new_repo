@@ -1,0 +1,9 @@
+{
+  "name": "pln026-load-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify:summary": "node verify-summary.js",
+    "test": "node --test verify-summary.test.mjs"
+  }
+}

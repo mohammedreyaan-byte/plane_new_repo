@@ -12,7 +12,8 @@ from rest_framework.response import Response
 
 # Module imports
 from .base import BaseAPIView
-from plane.db.models import EmailSuppression
+from plane.bgtasks.email_task import send_test_email
+from plane.db.models import EmailNotificationLog, EmailSuppression
 from plane.license.api.permissions import InstanceAdminPermission
 from plane.license.api.serializers import InstanceConfigurationSerializer
 from plane.license.models import InstanceConfiguration
@@ -24,8 +25,6 @@ from plane.license.utils.instance_value import (
 from plane.utils.cache import cache_response, invalidate_cache
 from plane.utils.smtp import (
     SMTPConfigurationError,
-    describe_smtp_error,
-    send_email_message,
     smtp_configuration_values,
     suppress_email,
     validate_smtp_connection,
@@ -168,9 +167,7 @@ class InstanceSMTPConfigurationEndpoint(BaseAPIView):
 
         candidate = get_smtp_configuration()
         candidate_overrides = {
-            key: value
-            for key, value in updates.items()
-            if not (key == "EMAIL_HOST_PASSWORD" and not value)
+            key: value for key, value in updates.items() if not (key == "EMAIL_HOST_PASSWORD" and not value)
         }
         candidate.update(candidate_overrides)
         # Enabling the feature is not a connection change. The settings form is
@@ -204,15 +201,13 @@ class DisableEmailFeatureEndpoint(BaseAPIView):
     @invalidate_cache(path="/api/instances/", user=False)
     def delete(self, request):
         try:
-            InstanceConfiguration.objects.filter(
-                Q(key__in=[*SMTP_CONFIG_KEYS, *SMTP_TEST_RESULT_KEYS])
-            ).update(
+            InstanceConfiguration.objects.filter(Q(key__in=[*SMTP_CONFIG_KEYS, *SMTP_TEST_RESULT_KEYS])).update(
                 value=Case(
                     When(key="ENABLE_SMTP", then=Value("0")),
                     When(key="EMAIL_PORT", then=Value("587")),
                     When(key="EMAIL_USE_TLS", then=Value("1")),
                     When(key="EMAIL_USE_SSL", then=Value("0")),
-                    When(key="EMAIL_TIMEOUT", then=Value("30")),
+                    When(key="EMAIL_TIMEOUT", then=Value("10")),
                     default=Value(""),
                 )
             )
@@ -225,7 +220,22 @@ class DisableEmailFeatureEndpoint(BaseAPIView):
 
 
 class EmailCredentialCheckEndpoint(BaseAPIView):
+    """Queue the admin test email and expose its persisted result."""
+
     permission_classes = [InstanceAdminPermission]
+
+    def get(self, request):
+        configuration = get_smtp_configuration()
+        state = str(configuration.get("EMAIL_LAST_TEST_STATUS") or "").strip() or "idle"
+        return Response(
+            {
+                "state": state,
+                "status": state,
+                "message": configuration.get("EMAIL_LAST_TEST_MESSAGE") or "",
+                "at": configuration.get("EMAIL_LAST_TEST_AT") or "",
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @invalidate_cache(path="/api/instances/smtp/", user=False, multiple=True)
     def post(self, request):
@@ -241,23 +251,75 @@ class EmailCredentialCheckEndpoint(BaseAPIView):
             _set_email_test_result("failed", "SMTP is disabled")
             return Response({"error": "SMTP is disabled"}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            send_email_message(
-                subject="Email Notification from Plane",
-                body="This is a sample email notification sent from Plane application.",
-                recipients=[receiver_email],
-                configuration=configuration,
-            )
-        except SMTPConfigurationError as error:
-            _set_email_test_result("failed", str(error))
-            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as error:
-            message = describe_smtp_error(error)
-            _set_email_test_result("failed", message)
-            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+        _set_email_test_result("queued", "Test email queued for delivery")
+        send_test_email.delay(receiver_email)
+        return Response(
+            {"state": "queued", "status": "queued", "message": "Test email queued for delivery"},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
-        _set_email_test_result("success", "Test email sent successfully")
-        return Response({"message": "Email successfully sent."}, status=status.HTTP_200_OK)
+
+def _delivery_log_state(log):
+    if log.sent_at:
+        return "delivered"
+    if log.attempts:
+        return "failed"
+    return "pending"
+
+
+def _delivery_log_data(log, detail=False):
+    data = {
+        "id": str(log.pk),
+        "receiver_email": log.receiver.email if log.receiver_id else "",
+        "entity_name": log.entity_name,
+        "entity_identifier": str(log.entity_identifier) if log.entity_identifier else None,
+        "entity": log.entity,
+        "state": _delivery_log_state(log),
+        "attempts": log.attempts,
+        "last_error": log.last_error,
+        "next_retry_at": log.next_retry_at,
+        "processed_at": log.processed_at,
+        "sent_at": log.sent_at,
+        "created_at": log.created_at,
+    }
+    if detail:
+        data["data"] = log.data
+        data["old_value"] = log.old_value
+        data["new_value"] = log.new_value
+    return data
+
+
+class EmailDeliveryLogEndpoint(BaseAPIView):
+    """Recent delivery attempts for the admin delivery panel."""
+
+    permission_classes = [InstanceAdminPermission]
+
+    def get(self, request):
+        queryset = EmailNotificationLog.objects.select_related("receiver").order_by("-created_at")
+        email = str(request.query_params.get("email", "")).strip()
+        state = str(request.query_params.get("state", "")).strip()
+        entity_name = str(request.query_params.get("entity_name", "")).strip()
+        if email:
+            queryset = queryset.filter(receiver__email__icontains=email)
+        if entity_name:
+            queryset = queryset.filter(entity_name=entity_name)
+        if state == "delivered":
+            queryset = queryset.filter(sent_at__isnull=False)
+        elif state == "failed":
+            queryset = queryset.filter(sent_at__isnull=True, attempts__gt=0)
+        elif state == "pending":
+            queryset = queryset.filter(sent_at__isnull=True, attempts=0)
+        return Response([_delivery_log_data(log) for log in queryset[:100]], status=status.HTTP_200_OK)
+
+
+class EmailDeliveryLogDetailEndpoint(BaseAPIView):
+    permission_classes = [InstanceAdminPermission]
+
+    def get(self, request, pk):
+        log = EmailNotificationLog.objects.select_related("receiver").filter(pk=pk).first()
+        if log is None:
+            return Response({"error": "Delivery log not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_delivery_log_data(log, detail=True), status=status.HTTP_200_OK)
 
 
 class EmailSuppressionEndpoint(BaseAPIView):

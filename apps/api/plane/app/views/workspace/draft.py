@@ -29,7 +29,6 @@ from plane.app.serializers import (
     DraftIssueDetailSerializer,
 )
 from plane.db.models import (
-    Issue,
     DraftIssue,
     CycleIssue,
     ModuleIssue,
@@ -41,14 +40,17 @@ from .. import BaseViewSet
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.utils.issue_filters import issue_filters
 from plane.utils.host import base_host
+from plane.utils.permissions.project_scope import active_project_membership, project_queryset, scoped_get_or_404
 
 
 class WorkspaceDraftIssueViewSet(BaseViewSet):
     model = DraftIssue
 
     def get_queryset(self):
+        accessible_projects = project_queryset(self.request.user, self.kwargs.get("slug")).values_list("id", flat=True)
         return (
             DraftIssue.objects.filter(workspace__slug=self.kwargs.get("slug"))
+            .filter(Q(project__isnull=True) | Q(project_id__in=accessible_projects))
             .select_related("workspace", "project", "state", "parent")
             .prefetch_related("assignees", "labels", "draft_issue_module__module")
             .annotate(
@@ -111,12 +113,17 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def create(self, request, slug):
         workspace = Workspace.objects.get(slug=slug)
+        body_project_id = request.data.get("project_id", None)
+        if body_project_id and not active_project_membership(
+            request.user, project_id=body_project_id, workspace_slug=slug
+        ):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = DraftIssueCreateSerializer(
             data=request.data,
             context={
                 "workspace_id": workspace.id,
-                "project_id": request.data.get("project_id", None),
+                "project_id": body_project_id,
             },
         )
         if serializer.is_valid():
@@ -156,7 +163,7 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
     @allow_permission(
         allowed_roles=[ROLE.ADMIN, ROLE.MEMBER],
         creator=True,
-        model=Issue,
+        model=DraftIssue,
         level="WORKSPACE",
     )
     def partial_update(self, request, slug, pk):
@@ -166,6 +173,8 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
             return Response({"error": "Issue not found"}, status=status.HTTP_404_NOT_FOUND)
 
         project_id = request.data.get("project_id", issue.project_id)
+        if project_id and not active_project_membership(request.user, project_id=project_id, workspace_slug=slug):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = DraftIssueCreateSerializer(
             issue,
@@ -183,7 +192,7 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=Issue, level="WORKSPACE")
+    @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=DraftIssue, level="WORKSPACE")
     def retrieve(self, request, slug, pk=None):
         issue = self.get_queryset().filter(pk=pk, created_by=request.user).first()
 
@@ -198,7 +207,7 @@ class WorkspaceDraftIssueViewSet(BaseViewSet):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], creator=True, model=DraftIssue, level="WORKSPACE")
     def destroy(self, request, slug, pk=None):
-        draft_issue = DraftIssue.objects.get(workspace__slug=slug, pk=pk)
+        draft_issue = scoped_get_or_404(self.get_queryset().filter(created_by=request.user), pk=pk)
         draft_issue.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

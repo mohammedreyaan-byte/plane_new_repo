@@ -1,0 +1,29 @@
+# Production-only Compose overrides.
+#
+# Use ONLY with docker-compose.yml:
+#   docker compose -p plane-ce-project \
+#     -f docker-compose.yml \
+#     -f docker-compose.production.override.yml \
+#     up -d --no-build
+#
+# Never use docker-compose.demo.override.yml or docker-compose.dev.override.yml
+# in production: the demo override contains a placeholder LIVE_SERVER_SECRET_KEY
+# and the dev override contains local-only ports, a local MinIO image and a
+# bind-mounted Caddyfile.
+#
+# Every value below is required from the operator environment. This file stores
+# no credentials, secrets, provider values or defaults for secret material.
+
+services:
+  proxy:
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS:?SITE_ADDRESS must be supplied by the operator}"
+
+  live:
+    environment:
+      API_BASE_URL: "http://api:8000"
+      WEB_BASE_URL: "http://web:3000"
+      LIVE_SERVER_SECRET_KEY: "${LIVE_SERVER_SECRET_KEY:?LIVE_SERVER_SECRET_KEY must be supplied by the operator}"
+      REDIS_HOST: "plane-redis"
+      REDIS_PORT: "6379"
+      REDIS_URL: "redis://plane-redis:6379/"

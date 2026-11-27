@@ -1,0 +1,20 @@
+{
+  "name": "@plane/e2e",
+  "version": "1.4.2",
+  "private": true,
+  "description": "PLN-026 end-to-end suite",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:list": "playwright test --list",
+    "report": "playwright show-report playwright-report",
+    "mock:integrations": "node mock-integrations.mjs",
+    "check:types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -18,6 +18,8 @@ import type {
   IInstanceInfo,
   IInstanceConfig,
   IInstanceSmtpConfiguration,
+  IInstanceSmtpTestStatus,
+  IEmailDeliveryLog,
   TInstanceSmtpConfigurationUpdate,
 } from "@plane/types";
 // root store
@@ -33,6 +35,8 @@ export interface IInstanceStore {
   instanceAdmins: IInstanceAdmin[] | undefined;
   instanceConfigurations: IInstanceConfiguration[] | undefined;
   smtpConfiguration: IInstanceSmtpConfiguration | undefined;
+  smtpTestStatus: IInstanceSmtpTestStatus | undefined;
+  emailDeliveryLog: IEmailDeliveryLog[] | undefined;
   // computed
   formattedConfig: IFormattedInstanceConfiguration | undefined;
   // action
@@ -44,6 +48,10 @@ export interface IInstanceStore {
   updateInstanceConfigurations: (data: Partial<IFormattedInstanceConfiguration>) => Promise<IInstanceConfiguration[]>;
   fetchSmtpConfiguration: () => Promise<IInstanceSmtpConfiguration | undefined>;
   updateSmtpConfiguration: (data: TInstanceSmtpConfigurationUpdate) => Promise<IInstanceSmtpConfiguration>;
+  sendTestEmail: (receiverEmail: string) => Promise<IInstanceSmtpTestStatus>;
+  fetchSmtpTestStatus: () => Promise<IInstanceSmtpTestStatus>;
+  fetchEmailDeliveryLog: () => Promise<IEmailDeliveryLog[]>;
+  fetchEmailDeliveryLogDetail: (id: string) => Promise<IEmailDeliveryLog>;
   disableEmail: () => Promise<void>;
 }
 
@@ -56,6 +64,8 @@ export class InstanceStore implements IInstanceStore {
   instanceAdmins: IInstanceAdmin[] | undefined = undefined;
   instanceConfigurations: IInstanceConfiguration[] | undefined = undefined;
   smtpConfiguration: IInstanceSmtpConfiguration | undefined = undefined;
+  smtpTestStatus: IInstanceSmtpTestStatus | undefined = undefined;
+  emailDeliveryLog: IEmailDeliveryLog[] | undefined = undefined;
   // service
   instanceService;
 
@@ -69,6 +79,8 @@ export class InstanceStore implements IInstanceStore {
       instanceAdmins: observable,
       instanceConfigurations: observable,
       smtpConfiguration: observable.ref,
+      smtpTestStatus: observable.ref,
+      emailDeliveryLog: observable.ref,
       // computed
       formattedConfig: computed,
       // actions
@@ -80,6 +92,10 @@ export class InstanceStore implements IInstanceStore {
       updateInstanceConfigurations: action,
       fetchSmtpConfiguration: action,
       updateSmtpConfiguration: action,
+      sendTestEmail: action,
+      fetchSmtpTestStatus: action,
+      fetchEmailDeliveryLog: action,
+      fetchEmailDeliveryLogDetail: action,
     });
 
     this.instanceService = new InstanceService();
@@ -193,8 +209,8 @@ export class InstanceStore implements IInstanceStore {
       const response = await this.instanceService.updateConfigurations(data);
       runInAction(() => {
         this.instanceConfigurations = this.instanceConfigurations?.map((config) => {
-          const item = response.find((item) => item.key === config.key);
-          if (item) return item;
+          const updated = response.find((entry) => entry.key === config.key);
+          if (updated) return updated;
           return config;
         });
       });
@@ -237,6 +253,55 @@ export class InstanceStore implements IInstanceStore {
     }
   };
 
+  /** Queue the admin test email; the worker writes the final result to the instance config. */
+  sendTestEmail = async (receiverEmail: string) => {
+    try {
+      const status = await this.instanceService.sendTestEmail(receiverEmail);
+      runInAction(() => {
+        this.smtpTestStatus = status;
+      });
+      return status;
+    } catch (error) {
+      console.error("Error queuing the test email");
+      throw error;
+    }
+  };
+
+  fetchSmtpTestStatus = async () => {
+    try {
+      const status = await this.instanceService.smtpTestStatus();
+      runInAction(() => {
+        this.smtpTestStatus = status;
+      });
+      return status;
+    } catch (error) {
+      console.error("Error fetching the test email status");
+      throw error;
+    }
+  };
+
+  fetchEmailDeliveryLog = async () => {
+    try {
+      const logs = await this.instanceService.emailDeliveryLog();
+      runInAction(() => {
+        this.emailDeliveryLog = logs;
+      });
+      return logs;
+    } catch (error) {
+      console.error("Error fetching the email delivery log");
+      throw error;
+    }
+  };
+
+  fetchEmailDeliveryLogDetail = async (id: string) => {
+    try {
+      return await this.instanceService.emailDeliveryLogDetail(id);
+    } catch (error) {
+      console.error("Error fetching the email delivery log detail");
+      throw error;
+    }
+  };
+
   disableEmail = async () => {
     const instanceConfigurations = this.instanceConfigurations;
     try {
@@ -270,6 +335,8 @@ export class InstanceStore implements IInstanceStore {
             EMAIL_LAST_TEST_AT: "",
           };
         }
+        this.smtpTestStatus = { state: "idle", status: "idle", message: "", at: "" };
+        this.emailDeliveryLog = undefined;
       });
       await this.instanceService.disableEmail();
     } catch (_error) {

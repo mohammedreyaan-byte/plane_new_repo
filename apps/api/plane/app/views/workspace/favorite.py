@@ -15,6 +15,7 @@ from plane.app.views.base import BaseAPIView
 from plane.db.models import UserFavorite, Workspace
 from plane.app.serializers import UserFavoriteSerializer
 from plane.app.permissions import allow_permission, ROLE
+from plane.utils.permissions.project_scope import active_project_membership
 
 
 class WorkspaceFavoriteEndpoint(BaseAPIView):
@@ -38,6 +39,11 @@ class WorkspaceFavoriteEndpoint(BaseAPIView):
     def post(self, request, slug):
         try:
             workspace = Workspace.objects.get(slug=slug)
+            project_id = request.data.get("project_id", None)
+            if project_id and not active_project_membership(
+                request.user, project_id=project_id, workspace_slug=slug
+            ):
+                return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
             # If the favorite exists return
             if request.data.get("entity_identifier"):
@@ -59,7 +65,7 @@ class WorkspaceFavoriteEndpoint(BaseAPIView):
                 serializer.save(
                     user_id=request.user.id,
                     workspace=workspace,
-                    project_id=request.data.get("project_id", None),
+                    project_id=project_id,
                 )
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -1,0 +1,32 @@
+name: PLN-015 project isolation
+
+on:
+  push:
+    paths:
+      - "apps/api/**"
+      - "docker-compose-test.yml"
+      - ".github/workflows/pln015-security.yml"
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "docker-compose-test.yml"
+      - ".github/workflows/pln015-security.yml"
+
+jobs:
+  authorization-suite:
+    name: Project isolation authorization suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare test environment
+        run: cp apps/api/.env.example apps/api/.env
+
+      - name: Verify Docker Compose
+        run: docker compose version
+
+      - name: Run isolation tests
+        run: |
+          docker compose -f docker-compose-test.yml run --rm --build api-tests \
+            pytest plane/tests/unit/utils/test_project_scope.py plane/tests/security -vv

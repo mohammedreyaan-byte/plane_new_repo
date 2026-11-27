@@ -24,6 +24,10 @@ from plane.settings.storage import S3Storage
 from plane.app.permissions import allow_permission, ROLE
 from plane.utils.cache import invalidate_cache_directly
 from plane.utils.path_validator import sanitize_filename
+from plane.utils.permissions.project_scope import (
+    active_project_membership,
+    has_project_asset_access,
+)
 from plane.bgtasks.storage_metadata_task import get_asset_object_metadata
 from plane.throttles.asset import AssetRateThrottle
 
@@ -521,9 +525,7 @@ class StaticFileAssetEndpoint(BaseAPIView):
         # same-origin XSS when assets are served on the application's origin.
         storage = S3Storage(request=request)
         asset_mime_type = (asset.attributes.get("type") or "").split(";")[0].strip().lower()
-        disposition = (
-            "attachment" if asset_mime_type in settings.SCRIPT_CAPABLE_MIME_TYPES else "inline"
-        )
+        disposition = "attachment" if asset_mime_type in settings.SCRIPT_CAPABLE_MIME_TYPES else "inline"
         # Generate a presigned URL to share an S3 object
         signed_url = storage.generate_presigned_url(
             object_name=asset.asset.name,
@@ -772,8 +774,10 @@ class AssetCheckEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def get(self, request, slug, asset_id):
-        asset = FileAsset.all_objects.filter(id=asset_id, workspace__slug=slug, deleted_at__isnull=True).exists()
-        return Response({"exists": asset}, status=status.HTTP_200_OK)
+        asset = FileAsset.all_objects.filter(id=asset_id, workspace__slug=slug, deleted_at__isnull=True).first()
+        if asset is None or not has_project_asset_access(request.user, asset):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"exists": True}, status=status.HTTP_200_OK)
 
 
 class DuplicateAssetEndpoint(BaseAPIView):
@@ -825,10 +829,8 @@ class DuplicateAssetEndpoint(BaseAPIView):
             )
 
         workspace = Workspace.objects.get(slug=slug)
-        if project_id:
-            # check if project exists in the workspace
-            if not Project.objects.filter(id=project_id, workspace=workspace).exists():
-                return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+        if project_id and not active_project_membership(request.user, project_id=project_id, workspace_slug=slug):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         storage = S3Storage(request=request)
         # Restrict the source asset to the same destination workspace to prevent cross-workspace asset copying
@@ -838,8 +840,8 @@ class DuplicateAssetEndpoint(BaseAPIView):
             workspace=workspace,
         ).first()
 
-        if not original_asset:
-            return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
+        if not original_asset or not has_project_asset_access(request.user, original_asset):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         sanitized_name = sanitize_filename(original_asset.attributes.get("name")) or "unnamed"
         destination_key = f"{workspace.id}/{uuid.uuid4().hex}-{sanitized_name}"
@@ -878,9 +880,11 @@ class WorkspaceAssetDownloadEndpoint(BaseAPIView):
             )
         except FileAsset.DoesNotExist:
             return Response(
-                {"error": "The requested asset could not be found."},
+                {"error": "Not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        if not has_project_asset_access(request.user, asset):
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         storage = S3Storage(request=request)
         signed_url = storage.generate_presigned_url(

@@ -10,9 +10,6 @@ from rest_framework.response import Response
 from plane.db.models import (
     IssueVersion,
     IssueDescriptionVersion,
-    Project,
-    ProjectMember,
-    Issue,
 )
 from ..base import BaseAPIView
 from plane.app.serializers import (
@@ -22,6 +19,13 @@ from plane.app.serializers import (
 from plane.app.permissions import allow_permission, ROLE
 from plane.utils.global_paginator import paginate
 from plane.utils.timezone_converter import user_timezone_converter
+from plane.utils.permissions.project_scope import (
+    is_guest_restricted,
+    resolve_request_project,
+    scoped_get_or_404,
+    visible_issues,
+    visible_objects,
+)
 
 
 class IssueVersionEndpoint(BaseAPIView):
@@ -35,9 +39,17 @@ class IssueVersionEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, issue_id, pk=None):
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        scoped_get_or_404(visible_issues(request.user, project), pk=issue_id)
+
         if pk:
-            issue_version = IssueVersion.objects.get(
-                workspace__slug=slug, project_id=project_id, issue_id=issue_id, pk=pk
+            issue_version = scoped_get_or_404(
+                visible_objects(
+                    request.user,
+                    project,
+                    IssueVersion.objects.filter(workspace__slug=slug, project_id=project_id, issue_id=issue_id),
+                ),
+                pk=pk,
             )
 
             serializer = IssueVersionDetailSerializer(issue_version)
@@ -58,8 +70,10 @@ class IssueVersionEndpoint(BaseAPIView):
             "updated_by",
         ]
 
-        issue_versions_queryset = IssueVersion.objects.filter(
-            workspace__slug=slug, project_id=project_id, issue_id=issue_id
+        issue_versions_queryset = visible_objects(
+            request.user,
+            project,
+            IssueVersion.objects.filter(workspace__slug=slug, project_id=project_id, issue_id=issue_id),
         )
 
         paginated_data = paginate(
@@ -85,30 +99,21 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def get(self, request, slug, project_id, work_item_id, pk=None):
-        project = Project.objects.get(pk=project_id)
-        issue = Issue.objects.get(workspace__slug=slug, project_id=project_id, pk=work_item_id)
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        issue = scoped_get_or_404(visible_issues(request.user, project), pk=work_item_id)
 
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project_id,
-                member=request.user,
-                role=ROLE.GUEST.value,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-            and not issue.created_by == request.user
-        ):
-            return Response(
-                {"error": "You are not allowed to view this issue"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if is_guest_restricted(request.user, project) and issue.created_by_id != request.user.id:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         if pk:
-            issue_description_version = IssueDescriptionVersion.objects.get(
-                workspace__slug=slug,
-                project_id=project_id,
-                issue_id=work_item_id,
+            issue_description_version = scoped_get_or_404(
+                visible_objects(
+                    request.user,
+                    project,
+                    IssueDescriptionVersion.objects.filter(
+                        workspace__slug=slug, project_id=project_id, issue_id=work_item_id
+                    ),
+                ),
                 pk=pk,
             )
 
@@ -130,8 +135,10 @@ class WorkItemDescriptionVersionEndpoint(BaseAPIView):
             "updated_by",
         ]
 
-        issue_description_versions_queryset = IssueDescriptionVersion.objects.filter(
-            workspace__slug=slug, project_id=project_id, issue_id=work_item_id
+        issue_description_versions_queryset = visible_objects(
+            request.user,
+            project,
+            IssueDescriptionVersion.objects.filter(workspace__slug=slug, project_id=project_id, issue_id=work_item_id),
         ).order_by("-created_at")
         paginated_data = paginate(
             base_queryset=issue_description_versions_queryset,

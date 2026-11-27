@@ -16,6 +16,7 @@ import { useInstance } from "@/hooks/store";
 // types
 import type { Route } from "./+types/page";
 // local
+import { EmailDeliveryLog } from "./email-delivery-log";
 import { InstanceEmailForm } from "./email-config-form";
 
 const SWR_KEY = "INSTANCE_SMTP_CONFIGURATION";
@@ -110,6 +111,7 @@ const InstanceEmailPage = observer(function InstanceEmailPage(_props: Route.Comp
               <Loader.Item height="50px" width="20%" />
             </Loader>
           )}
+          <EmailDeliveryLog />
         </>
       )}
     </PageWrapper>

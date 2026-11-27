@@ -13,6 +13,8 @@ import type {
   IInstanceConfiguration,
   IInstanceInfo,
   IInstanceSmtpConfiguration,
+  IInstanceSmtpTestStatus,
+  IEmailDeliveryLog,
   TInstanceSmtpConfigurationUpdate,
   TPage,
 } from "@plane/types";
@@ -140,15 +142,39 @@ export class InstanceService extends APIService {
   }
 
   /**
-   * Sends a test email to the specified receiver to test SMTP configuration
+   * Queues a test email on the worker. The result is read from smtpTestStatus().
    * @param {string} receiverEmail Email address to send the test email to
-   * @returns {Promise<void>} Promise resolving to void
-   * @throws {Error} If the API request fails
    */
-  async sendTestEmail(receiverEmail: string): Promise<void> {
+  async sendTestEmail(receiverEmail: string): Promise<IInstanceSmtpTestStatus> {
     return this.post("/api/instances/smtp/test-email/", {
       receiver_email: receiverEmail,
     })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /** Pollable outcome of the most recent queued test email. */
+  async smtpTestStatus(): Promise<IInstanceSmtpTestStatus> {
+    return this.get("/api/instances/smtp/test-email/")
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  /** Recent delivery attempts for the admin delivery panel. */
+  async emailDeliveryLog(): Promise<IEmailDeliveryLog[]> {
+    return this.get("/api/instances/email-delivery-log/")
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async emailDeliveryLogDetail(id: string): Promise<IEmailDeliveryLog> {
+    return this.get(`/api/instances/email-delivery-log/${id}/`)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

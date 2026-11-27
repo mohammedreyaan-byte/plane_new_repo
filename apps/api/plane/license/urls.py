@@ -6,6 +6,8 @@ from django.urls import path
 
 from plane.license.api.views import (
     EmailCredentialCheckEndpoint,
+    EmailDeliveryLogDetailEndpoint,
+    EmailDeliveryLogEndpoint,
     EmailSuppressionEndpoint,
     InstanceAdminEndpoint,
     InstanceAdminSignInEndpoint,
@@ -87,6 +89,16 @@ urlpatterns = [
         "email-suppressions/",
         EmailSuppressionEndpoint.as_view(),
         name="email-suppressions",
+    ),
+    path(
+        "email-delivery-log/",
+        EmailDeliveryLogEndpoint.as_view(),
+        name="email-delivery-log",
+    ),
+    path(
+        "email-delivery-log/<uuid:pk>/",
+        EmailDeliveryLogDetailEndpoint.as_view(),
+        name="email-delivery-log-detail",
     ),
     path(
         "workspace-slug-check/",

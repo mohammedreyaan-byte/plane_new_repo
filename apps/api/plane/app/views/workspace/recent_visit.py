@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # See the LICENSE file for details.
 
+# Django imports
+from django.db.models import Q
+
 # Third party imports
 from rest_framework import status
 from rest_framework.response import Response
@@ -12,6 +15,7 @@ from plane.app.serializers import WorkspaceRecentVisitSerializer
 # Modules imports
 from ..base import BaseViewSet
 from plane.app.permissions import allow_permission, ROLE
+from plane.utils.permissions.project_scope import project_queryset
 
 
 class UserRecentVisitViewSet(BaseViewSet):
@@ -23,7 +27,13 @@ class UserRecentVisitViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST], level="WORKSPACE")
     def list(self, request, slug):
-        user_recent_visits = UserRecentVisit.objects.filter(workspace__slug=slug, user=request.user)
+        accessible_project_ids = project_queryset(request.user, slug).values_list("id", flat=True)
+        user_recent_visits = UserRecentVisit.objects.filter(
+            workspace__slug=slug,
+            user=request.user,
+        ).filter(
+            Q(project__isnull=True) | Q(project_id__in=accessible_project_ids)
+        )
 
         entity_name = request.query_params.get("entity_name")
 

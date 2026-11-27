@@ -47,6 +47,10 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None, 
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped_view(instance, request, *args, **kwargs):
+            # Imported here because plane.utils.permissions imports this package
+            # at module load time; a top-level import creates an import cycle.
+            from plane.utils.permissions import project_scope
+
             # Check for creator if required
             if creator and model:
                 # check if the user is part of the workspace or not
@@ -55,6 +59,16 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None, 
                     workspace__slug=kwargs["slug"],
                     is_active=True,
                 ).exists():
+                    return Response(
+                        {"error": "You don't have the required permissions."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+                # Creator access is project-scoped: owning an object in project B
+                # must not grant access through a project A URL.
+                if kwargs.get("project_id") and not project_scope.active_project_membership(
+                    request.user, project_id=kwargs["project_id"], workspace_slug=kwargs.get("slug")
+                ):
                     return Response(
                         {"error": "You don't have the required permissions."},
                         status=status.HTTP_403_FORBIDDEN,
@@ -107,6 +121,14 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None, 
                         is_active=True,
                     ).exists()
                 ):
+                    # Explicitly retained admin override; record it so audits can
+                    # distinguish it from genuine project membership.
+                    project_scope.log_project_admin_override(
+                        request.user,
+                        project_id=kwargs.get("project_id"),
+                        slug=kwargs.get("slug"),
+                        request=request,
+                    )
                     return view_func(instance, request, *args, **kwargs)
 
             # Return permission denied if no conditions are met

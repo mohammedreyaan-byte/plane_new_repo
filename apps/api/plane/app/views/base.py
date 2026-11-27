@@ -29,6 +29,31 @@ from plane.authentication.session import BaseSessionAuthentication
 from plane.utils.exception_logger import log_exception
 from plane.utils.paginator import BasePaginator
 from plane.utils.core.mixins import ReadReplicaControlMixin
+from plane.utils.permissions.project_scope import check_project_scope
+
+
+class ProjectScopeMixin:
+    """Resolve the URL project and enforce membership before view bodies run.
+
+    Endpoints that are intentionally unscoped may opt out with
+    ``skip_project_scope = True``.  Existing permission decorators are not
+    weakened; this only adds a membership/token-scope precondition.
+    """
+
+    skip_project_scope = False
+
+    def initial(self, request, *args, **kwargs):
+        # ``request.user`` triggers DRF authentication lazily. The central
+        # check must run before permission classes so a token used in the
+        # wrong workspace keeps its 401 contract instead of becoming a
+        # generic permission failure.
+        if not self.skip_project_scope:
+            check_project_scope(
+                request,
+                kwargs,
+                hide_membership=getattr(self, "project_scope_hide_membership", False),
+            )
+        super().initial(request, *args, **kwargs)
 
 
 class TimezoneMixin:
@@ -45,7 +70,7 @@ class TimezoneMixin:
             timezone.deactivate()
 
 
-class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePaginator):
+class BaseViewSet(TimezoneMixin, ProjectScopeMixin, ReadReplicaControlMixin, ModelViewSet, BasePaginator):
     model = None
 
     permission_classes = [IsAuthenticated]
@@ -162,7 +187,7 @@ class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePagi
         return expand if expand else None
 
 
-class BaseAPIView(TimezoneMixin, ReadReplicaControlMixin, APIView, BasePaginator):
+class BaseAPIView(TimezoneMixin, ProjectScopeMixin, ReadReplicaControlMixin, APIView, BasePaginator):
     permission_classes = [IsAuthenticated]
 
     filter_backends = (DjangoFilterBackend, SearchFilter)

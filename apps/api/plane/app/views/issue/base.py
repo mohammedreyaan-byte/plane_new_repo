@@ -76,6 +76,13 @@ from plane.utils.order_queryset import order_issue_queryset
 from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
 from plane.utils.timezone_converter import user_timezone_converter
 from plane.utils.workflow.board import build_board_metadata
+from plane.utils.permissions.project_scope import (
+    is_active_project_member,
+    is_guest_restricted,
+    log_project_admin_override,
+    scoped_get_or_404,
+    workspace_admin,
+)
 
 from .. import BaseAPIView, BaseViewSet
 
@@ -118,9 +125,9 @@ class IssueListEndpoint(BaseAPIView):
 
         # Add select_related, prefetch_related if fields or expand is not None
         if self.fields or self.expand:
-            issue_queryset = issue_queryset.select_related("workspace", "project", "state", "parent", "type").prefetch_related(
-                "assignees", "labels", "issue_module__module"
-            )
+            issue_queryset = issue_queryset.select_related(
+                "workspace", "project", "state", "parent", "type"
+            ).prefetch_related("assignees", "labels", "issue_module__module")
 
         # Add annotations
         issue_queryset = (
@@ -855,21 +862,11 @@ class ProjectUserDisplayPropertyEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def patch(self, request, slug, project_id):
         try:
-            issue_property = ProjectUserProperty.objects.get(
-                user=request.user, 
-                project_id=project_id
-            )
+            issue_property = ProjectUserProperty.objects.get(user=request.user, project_id=project_id)
         except ProjectUserProperty.DoesNotExist:
-            issue_property = ProjectUserProperty.objects.create(
-                user=request.user, 
-                project_id=project_id
-            )
+            issue_property = ProjectUserProperty.objects.create(user=request.user, project_id=project_id)
 
-        serializer = ProjectUserPropertySerializer(
-            issue_property, 
-            data=request.data,
-            partial=True
-        )
+        serializer = ProjectUserPropertySerializer(issue_property, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1326,20 +1323,17 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Fetch the project
-        project = Project.objects.get(identifier__iexact=project_identifier, workspace__slug=slug)
+        # Fetch the project. An inaccessible identifier is indistinguishable
+        # from a missing one so object existence is not disclosed.
+        project = scoped_get_or_404(Project.objects.filter(workspace__slug=slug), identifier__iexact=project_identifier)
 
-        # Check if the user is a member of the project
-        if not ProjectMember.objects.filter(
-            workspace__slug=slug,
-            project_id=project.id,
-            member=request.user,
-            is_active=True,
-        ).exists():
-            return Response(
-                {"error": "You are not allowed to view this issue"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # Check if the user is an active member of the project.
+        if not is_active_project_member(request.user, project):
+            if not workspace_admin(request.user, slug=slug, project=project):
+                return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            log_project_admin_override(request.user, project_id=project.id, slug=slug, request=request)
+
+        guest_restricted = is_guest_restricted(request.user, project)
 
         # Fetch the issue
         issue = (
@@ -1370,6 +1364,7 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
                 .values("count")
             )
             .filter(sequence_id=issue_identifier)
+            .filter(Q(created_by=request.user) if guest_restricted else Q())
             .annotate(
                 label_ids=Coalesce(
                     ArrayAgg(
@@ -1450,21 +1445,8 @@ class IssueDetailIdentifierEndpoint(BaseAPIView):
         the requesting user then dont show the issue
         """
 
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project.id,
-                member=request.user,
-                role=5,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-            and not issue.created_by == request.user
-        ):
-            return Response(
-                {"error": "You are not allowed to view this issue"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if guest_restricted and issue.created_by_id != request.user.id:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         recent_visited_task.delay(
             slug=slug,

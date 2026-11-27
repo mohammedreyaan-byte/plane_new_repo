@@ -1,0 +1,15 @@
+# PLN-025 additions for the isolated docker-compose-test.yml stack.
+# Use as an override: docker compose -f docker-compose-test.yml -f this-file ...
+# Set PLN025_PROJECT_ROOT to the checkout directory and PLN025_BACKUPS_HOST_DIR
+# to a host directory that may be shared with the test-minio container.
+
+services:
+  api-tests:
+    environment:
+      PLN025_SCRIPTS_DIR: /pln025-scripts
+    volumes:
+      - ${PLN025_PROJECT_ROOT:-.}/scripts/backup:/pln025-scripts
+
+  test-minio:
+    volumes:
+      - ${PLN025_BACKUPS_HOST_DIR:-./.pln025-backups}:/pln025-backups

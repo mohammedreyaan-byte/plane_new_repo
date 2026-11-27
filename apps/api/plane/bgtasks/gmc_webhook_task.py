@@ -6,7 +6,7 @@
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from celery import shared_task
 
@@ -63,9 +63,24 @@ def process_webhook_event(self, event_id: str) -> str:
                 },
             )
         detail = f"{event.provider} {event.event_type} referenced {reference}" + (f" ({url})" if url else "")
-        ExternalWebhookEvent.objects.filter(pk=event.pk).update(
-            work_item=issue, status="linked", detail=detail
-        )
+        ExternalWebhookEvent.objects.filter(pk=event.pk).update(work_item=issue, status="linked", detail=detail)
     else:
-        ExternalWebhookEvent.objects.filter(pk=event.pk).update(status="ignored", detail=detail or "No work item reference")
+        ExternalWebhookEvent.objects.filter(pk=event.pk).update(
+            status="ignored", detail=detail or "No work item reference"
+        )
+
+    from plane.utils.e2e_event_sink import record_e2e_event
+
+    record_e2e_event(
+        "events",
+        {
+            "provider": event.provider,
+            "event": event.event_type,
+            "delivery_id": event.delivery_id,
+            "deliveryId": event.delivery_id,
+            "work_item_reference": reference,
+            "url": detail,
+            "status": event.status,
+        },
+    )
     return str(event.id)

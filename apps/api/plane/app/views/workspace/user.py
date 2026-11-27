@@ -28,6 +28,7 @@ from django.utils import timezone
 # Third party modules
 from rest_framework import status
 from plane.utils.role_compat import CONTRIBUTOR_ROLES
+from plane.utils.permissions.project_scope import project_queryset
 from rest_framework.response import Response
 
 from plane.app.permissions import WorkspaceEntityPermission, WorkspaceViewerPermission
@@ -502,14 +503,18 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
             .count()
         )
 
+        accessible_project_ids = project_queryset(request.user, slug).values_list("id", flat=True)
+
         upcoming_cycles = CycleIssue.objects.filter(
             workspace__slug=slug,
+            project_id__in=accessible_project_ids,
             cycle__start_date__gt=timezone.now(),
             issue__assignees__in=[user_id],
         ).values("cycle__name", "cycle__id", "cycle__project_id")
 
         present_cycle = CycleIssue.objects.filter(
             workspace__slug=slug,
+            project_id__in=accessible_project_ids,
             cycle__start_date__lt=timezone.now(),
             cycle__end_date__gt=timezone.now(),
             issue__assignees__in=[user_id],

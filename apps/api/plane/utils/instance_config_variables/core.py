@@ -213,7 +213,7 @@ smtp_config_variables = [
     },
     {
         "key": "EMAIL_TIMEOUT",
-        "value": os.environ.get("EMAIL_TIMEOUT", "30"),
+        "value": os.environ.get("EMAIL_TIMEOUT", "10"),
         "category": "SMTP",
         "is_encrypted": False,
     },

@@ -45,6 +45,7 @@ from plane.utils.order_queryset import VIEW_ORDER_BY_ALLOWLIST, order_issue_quer
 from plane.bgtasks.recent_visited_task import recent_visited_task
 from .. import BaseViewSet
 from plane.db.models import UserFavorite
+from plane.utils.permissions.project_scope import scoped_get_or_404
 from plane.utils.filters import ComplexFilterBackend
 from plane.utils.filters import IssueFilterSet
 
@@ -418,9 +419,13 @@ class IssueViewFavoriteViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def create(self, request, slug, project_id):
+        view = scoped_get_or_404(
+            IssueView.objects.filter(workspace__slug=slug, project_id=project_id),
+            pk=request.data.get("view"),
+        )
         _ = UserFavorite.objects.create(
             user=request.user,
-            entity_identifier=request.data.get("view"),
+            entity_identifier=view.id,
             entity_type="view",
             project_id=project_id,
         )

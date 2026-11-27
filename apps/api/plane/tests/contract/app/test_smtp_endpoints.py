@@ -9,8 +9,8 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from plane.db.models import User
 from plane.license.models import Instance, InstanceAdmin, InstanceConfiguration
+from plane.bgtasks.email_task import send_test_email
 from plane.license.utils.encryption import decrypt_data
 from plane.utils.smtp import SMTPConfigurationError
 
@@ -46,12 +46,19 @@ def enabled_config():
 @pytest.mark.contract
 @pytest.mark.django_db
 class TestInstanceSMTPEndpoints:
-    def test_test_email_success_persists_result(self, instance_admin_client, mocker):
+    def test_test_email_is_queued_and_status_is_pollable(self, instance_admin_client, mocker):
+        def live_configuration():
+            configuration = enabled_config()
+            for key in ("EMAIL_LAST_TEST_STATUS", "EMAIL_LAST_TEST_MESSAGE", "EMAIL_LAST_TEST_AT"):
+                row = InstanceConfiguration.objects.filter(key=key).first()
+                configuration[key] = row.value if row else ""
+            return configuration
+
         mocker.patch(
             "plane.license.api.views.configuration.get_smtp_configuration",
-            return_value=enabled_config(),
+            side_effect=live_configuration,
         )
-        send = mocker.patch("plane.license.api.views.configuration.send_email_message", return_value=True)
+        delay = mocker.patch("plane.license.api.views.configuration.send_test_email.delay")
 
         response = instance_admin_client.post(
             reverse("instance-smtp-test-email"),
@@ -59,35 +66,31 @@ class TestInstanceSMTPEndpoints:
             format="json",
         )
 
-        assert response.status_code == 200
-        send.assert_called_once()
-        assert InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_STATUS").value == "success"
-        assert InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_MESSAGE").value
-        assert InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_AT").value
+        assert response.status_code == 202
+        assert response.data["state"] == "queued"
+        delay.assert_called_once_with("recipient@example.invalid")
+        assert InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_STATUS").value == "queued"
 
-    def test_test_email_failure_persists_error_without_credentials(self, instance_admin_client, mocker):
+        status_response = instance_admin_client.get(reverse("instance-smtp-test-email"))
+        assert status_response.status_code == 200
+        assert status_response.data["state"] == "queued"
+
+    def test_worker_failure_persists_error_without_credentials(self, instance_admin_client, mocker):
         mocker.patch(
-            "plane.license.api.views.configuration.get_smtp_configuration",
-            return_value=enabled_config(),
-        )
-        mocker.patch(
-            "plane.license.api.views.configuration.send_email_message",
+            "plane.bgtasks.email_task.send_email_message",
             side_effect=SMTPConfigurationError("Invalid SMTP credentials provided"),
         )
 
-        response = instance_admin_client.post(
-            reverse("instance-smtp-test-email"),
-            {"receiver_email": "recipient@example.invalid"},
-            format="json",
-        )
+        result = send_test_email("recipient@example.invalid")
 
-        assert response.status_code == 400
-        assert response.data["error"] == "Invalid SMTP credentials provided"
+        assert result["state"] == "failed"
+        assert result["message"] == "Invalid SMTP credentials provided"
         assert InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_STATUS").value == "failed"
-        assert "password@example.invalid" not in InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_MESSAGE").value
+        message = InstanceConfiguration.objects.get(key="EMAIL_LAST_TEST_MESSAGE").value
+        assert "password@example.invalid" not in message
 
-    def test_non_admin_cannot_send_test_email(self, api_client, mocker):
-        send = mocker.patch("plane.license.api.views.configuration.send_email_message")
+    def test_non_admin_cannot_queue_test_email(self, api_client, mocker):
+        delay = mocker.patch("plane.license.api.views.configuration.send_test_email.delay")
 
         response = api_client.post(
             reverse("instance-smtp-test-email"),
@@ -96,7 +99,7 @@ class TestInstanceSMTPEndpoints:
         )
 
         assert response.status_code in (401, 403)
-        send.assert_not_called()
+        delay.assert_not_called()
 
     def test_patch_creates_keys_encrypts_password_and_clears_old_test_result(self, instance_admin_client, mocker):
         mocker.patch("plane.license.api.views.configuration.validate_smtp_connection")

@@ -44,7 +44,7 @@ if SECRET_KEY in _INSECURE_SECRET_KEYS:
         "This makes your installation vulnerable to session forgery, CSRF bypass, and "
         "password-reset token forging. Set a unique SECRET_KEY before deploying to production. "
         "Generate one with: "
-        "python3 -c \"from django.utils.crypto import get_random_secret_key; print(get_random_secret_key())\""
+        'python3 -c "from django.utils.crypto import get_random_secret_key; print(get_random_secret_key())"'
     )
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -74,9 +74,7 @@ for _cidr in _webhook_allowed_ips_raw.split(","):
 # Example: "silo,silo.namespace.svc.cluster.local,internal-api.lan"
 _webhook_allowed_hosts_raw = os.environ.get("WEBHOOK_ALLOWED_HOSTS", "")
 WEBHOOK_ALLOWED_HOSTS = [
-    _host.strip().rstrip(".").lower()
-    for _host in _webhook_allowed_hosts_raw.split(",")
-    if _host.strip()
+    _host.strip().rstrip(".").lower() for _host in _webhook_allowed_hosts_raw.split(",") if _host.strip()
 ]
 
 # Webhook disallowed domains — comma-separated hostnames. Webhooks targeting
@@ -85,9 +83,7 @@ WEBHOOK_ALLOWED_HOSTS = [
 # for self-hosted deployments; set to e.g. "plane.so" to block specific domains.
 _webhook_disallowed_domains_raw = os.environ.get("WEBHOOK_DISALLOWED_DOMAINS", "")
 WEBHOOK_DISALLOWED_DOMAINS = [
-    _d.strip().rstrip(".").lower()
-    for _d in _webhook_disallowed_domains_raw.split(",")
-    if _d.strip()
+    _d.strip().rstrip(".").lower() for _d in _webhook_disallowed_domains_raw.split(",") if _d.strip()
 ]
 
 # Allowed Hosts
@@ -141,6 +137,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "30/minute",
         "asset_id": "5/minute",
+        "email_unsubscribe": "10/minute",
     },
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
@@ -293,6 +290,7 @@ TIME_ZONE = "UTC"
 # Default Auto Field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
 # Email settings
 def _bounded_int_env(name, default, minimum, maximum):
     try:
@@ -310,12 +308,26 @@ EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes")
 EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0").lower() in ("1", "true", "yes")
-EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "30") or 30)
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10") or 10)
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 DEFAULT_FROM_EMAIL = EMAIL_FROM or "webmaster@localhost"
 # Bounded retries for failed notification deliveries.
 EMAIL_DELIVERY_MAX_ATTEMPTS = _bounded_int_env("EMAIL_DELIVERY_MAX_ATTEMPTS", 3, 1, 10)
 EMAIL_RETRY_BACKOFF_SECONDS = _bounded_int_env("EMAIL_RETRY_BACKOFF_SECONDS", 300, 1, 3600)
+# Outbound guard rails. Both are environment-only so the database-backed SMTP
+# configuration remains the single source of truth for relay credentials.
+EMAIL_TEST_MODE = os.environ.get("EMAIL_TEST_MODE", "false").lower() in ("1", "true", "yes", "on")
+EMAIL_TEST_RECIPIENT = os.environ.get("EMAIL_TEST_RECIPIENT", "").strip()
+# Safety valve for staging: test mode must never silently point at a real relay.
+EMAIL_TEST_MODE_ALLOW_REAL_RELAY = os.environ.get("EMAIL_TEST_MODE_ALLOW_REAL_RELAY", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+EMAIL_RATE_LIMIT_PER_MINUTE = _bounded_int_env("EMAIL_RATE_LIMIT_PER_MINUTE", 60, 1, 10000)
+EMAIL_SUBJECT_MAX_BYTES = _bounded_int_env("EMAIL_SUBJECT_MAX_BYTES", 150, 20, 998)
+EMAIL_UNSUBSCRIBE_MAX_AGE_DAYS = _bounded_int_env("EMAIL_UNSUBSCRIBE_MAX_AGE_DAYS", 90, 1, 365)
 
 # Storage Settings
 # Use Minio settings

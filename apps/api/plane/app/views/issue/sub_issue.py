@@ -7,7 +7,7 @@ import json
 
 # Django imports
 from django.utils import timezone
-from django.db.models import OuterRef, Func, F, Q, Value, UUIDField, Subquery, Count, IntegerField
+from django.db.models import OuterRef, F, Value, UUIDField, Subquery, Count, IntegerField
 from django.utils.decorators import method_decorator
 from django.views.decorators.gzip import gzip_page
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -28,6 +28,11 @@ from plane.utils.timezone_converter import user_timezone_converter
 from collections import defaultdict
 from plane.utils.host import base_host
 from plane.utils.order_queryset import order_issue_queryset
+from plane.utils.permissions.project_scope import (
+    resolve_request_project,
+    scoped_get_or_404,
+    visible_issues,
+)
 
 
 class SubIssuesEndpoint(BaseAPIView):
@@ -35,8 +40,13 @@ class SubIssuesEndpoint(BaseAPIView):
 
     @method_decorator(gzip_page)
     def get(self, request, slug, project_id, issue_id):
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
         sub_issues = (
-            Issue.issue_objects.filter(parent_id=issue_id, workspace__slug=slug)
+            visible_issues(
+                request.user,
+                project,
+                Issue.issue_objects.filter(parent_id=issue_id, workspace__slug=slug),
+            )
             .annotate(
                 cycle_id=Subquery(
                     CycleIssue.objects.filter(issue=OuterRef("id"), deleted_at__isnull=True).values("cycle_id")[:1]
@@ -203,7 +213,8 @@ class SubIssuesEndpoint(BaseAPIView):
 
     # Assign multiple sub issues
     def post(self, request, slug, project_id, issue_id):
-        parent_issue = Issue.issue_objects.get(pk=issue_id)
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        parent_issue = scoped_get_or_404(visible_issues(request.user, project, Issue.issue_objects.all()), pk=issue_id)
         sub_issue_ids = request.data.get("sub_issue_ids", [])
 
         if not len(sub_issue_ids):
@@ -212,15 +223,25 @@ class SubIssuesEndpoint(BaseAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Scope to workspace to prevent cross-tenant IDOR
-        sub_issues = Issue.issue_objects.filter(id__in=sub_issue_ids, workspace__slug=slug)
+        # Scope to the resolved project (and guest visibility) to prevent
+        # cross-project/cross-tenant IDOR.
+        sub_issues = visible_issues(
+            request.user,
+            project,
+            Issue.issue_objects.filter(id__in=sub_issue_ids, workspace__slug=slug, project_id=project_id),
+        )
 
         for sub_issue in sub_issues:
             sub_issue.parent = parent_issue
 
+        scoped_sub_issue_ids = list(sub_issues.values_list("id", flat=True))
         _ = Issue.objects.bulk_update(sub_issues, ["parent"], batch_size=10)
 
-        updated_sub_issues = Issue.issue_objects.filter(id__in=sub_issue_ids).annotate(state_group=F("state__group"))
+        updated_sub_issues = visible_issues(
+            request.user,
+            project,
+            Issue.issue_objects.filter(id__in=scoped_sub_issue_ids, project_id=project_id),
+        ).annotate(state_group=F("state__group"))
 
         # Track the issue
         _ = [
@@ -235,7 +256,7 @@ class SubIssuesEndpoint(BaseAPIView):
                 notification=True,
                 origin=base_host(request=request, is_app=True),
             )
-            for sub_issue_id in sub_issue_ids
+            for sub_issue_id in scoped_sub_issue_ids
         ]
 
         # create's a dict with state group name with their respective issue id's

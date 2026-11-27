@@ -109,6 +109,8 @@ class UserNotificationPreference(BaseModel):
     comment = models.BooleanField(default=True)
     mention = models.BooleanField(default=True)
     issue_completed = models.BooleanField(default=True)
+    # One-click invitations opt out via a signed token; security mail never does.
+    project_invitation = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = "UserNotificationPreference"
@@ -171,3 +173,40 @@ class EmailSuppression(BaseModel):
     def __str__(self):
         return self.email
 
+
+class UnsubscribeToken(BaseModel):
+    """A signed, single-use token backing a one-click unsubscribe link."""
+
+    token = models.CharField(max_length=512, unique=True, db_index=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_unsubscribe_tokens",
+        null=True,
+    )
+    email = models.EmailField(max_length=255)
+    event_type = models.CharField(max_length=64)
+    workspace = models.ForeignKey(
+        "db.Workspace",
+        on_delete=models.CASCADE,
+        related_name="email_unsubscribe_tokens",
+        null=True,
+    )
+    project = models.ForeignKey(
+        "db.Project",
+        on_delete=models.CASCADE,
+        related_name="email_unsubscribe_tokens",
+        null=True,
+    )
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Email Unsubscribe Token"
+        verbose_name_plural = "Email Unsubscribe Tokens"
+        db_table = "email_unsubscribe_tokens"
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.event_type} <{self.email}>"

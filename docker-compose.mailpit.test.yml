@@ -1,0 +1,33 @@
+# Overlay for the manual Mailpit integration test. Use together with
+# docker-compose-test.yml; it does not change the base test stack.
+#
+#   docker compose -f docker-compose-test.yml -f docker-compose.mailpit.test.yml \
+#     run --rm --build api-tests pytest -m integration
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27.0
+    networks:
+      - test_env
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8025/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api-tests:
+    environment:
+      RUN_MAILPIT_INTEGRATION: "1"
+      MAILPIT_SMTP_HOST: mailpit
+      MAILPIT_SMTP_PORT: "1025"
+      MAILPIT_API_URL: http://mailpit:8025
+    depends_on:
+      mailpit:
+        condition: service_healthy
+
+networks:
+  test_env:
+    driver: bridge

@@ -19,10 +19,17 @@ from rest_framework import status
 from .. import BaseViewSet
 from plane.app.serializers import IssueCommentSerializer, CommentReactionSerializer
 from plane.app.permissions import allow_permission, ROLE
-from plane.db.models import IssueComment, ProjectMember, CommentReaction, Project, Issue
+from plane.db.models import IssueComment, ProjectMember, CommentReaction
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.utils.host import base_host
 from plane.bgtasks.webhook_task import model_activity
+from plane.utils.permissions.project_scope import (
+    is_guest_restricted,
+    resolve_request_project,
+    scoped_get_or_404,
+    visible_issues,
+    visible_objects,
+)
 
 
 class IssueCommentViewSet(BaseViewSet):
@@ -33,7 +40,8 @@ class IssueCommentViewSet(BaseViewSet):
     filterset_fields = ["issue__id", "workspace__id"]
 
     def get_queryset(self):
-        return self.filter_queryset(
+        project = resolve_request_project(self.request, self.kwargs)
+        queryset = (
             super()
             .get_queryset()
             .filter(workspace__slug=self.kwargs.get("slug"))
@@ -59,26 +67,14 @@ class IssueCommentViewSet(BaseViewSet):
             )
             .distinct()
         )
+        return self.filter_queryset(visible_objects(self.request.user, project, queryset))
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, issue_id):
-        project = Project.objects.get(pk=project_id)
-        issue = Issue.objects.get(pk=issue_id)
-        if (
-            ProjectMember.objects.filter(
-                workspace__slug=slug,
-                project_id=project_id,
-                member=request.user,
-                role=5,
-                is_active=True,
-            ).exists()
-            and not project.guest_view_all_features
-            and not issue.created_by == request.user
-        ):
-            return Response(
-                {"error": "You are not allowed to comment on the issue"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        issue = scoped_get_or_404(visible_issues(request.user, project), pk=issue_id)
+        if is_guest_restricted(request.user, project) and issue.created_by_id != request.user.id:
+            return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         serializer = IssueCommentSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(project_id=project_id, issue_id=issue_id, actor=request.user)
@@ -165,13 +161,18 @@ class CommentReactionViewSet(BaseViewSet):
     model = CommentReaction
 
     def get_queryset(self):
-        return (
+        project = resolve_request_project(self.request, self.kwargs)
+        visible = visible_objects(
+            self.request.user,
+            project,
             super()
             .get_queryset()
             .filter(workspace__slug=self.kwargs.get("slug"))
             .filter(project_id=self.kwargs.get("project_id"))
-            .filter(comment_id=self.kwargs.get("comment_id"))
-            .filter(
+            .filter(comment_id=self.kwargs.get("comment_id")),
+        )
+        return (
+            visible.filter(
                 project__project_projectmember__member=self.request.user,
                 project__project_projectmember__is_active=True,
                 project__archived_at__isnull=True,
@@ -182,6 +183,11 @@ class CommentReactionViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER, ROLE.GUEST])
     def create(self, request, slug, project_id, comment_id):
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        scoped_get_or_404(
+            visible_objects(request.user, project, IssueComment.objects.filter(project_id=project_id)),
+            pk=comment_id,
+        )
         try:
             serializer = CommentReactionSerializer(data=request.data)
             if serializer.is_valid():

@@ -676,6 +676,23 @@ def notifications(
                 new_mentions=new_mentions,
                 removed_mention=removed_mention,
             )
+            # Send-time isolation: only notify active project members. A user
+            # removed from the project between subscription and delivery must
+            # not receive the project-scoped notification.
+            active_memberships = set(
+                ProjectMember.objects.filter(
+                    is_active=True,
+                    project_id__in={n.project_id for n in bulk_notifications if n.project_id},
+                    member_id__in={n.receiver_id for n in bulk_notifications},
+                ).values_list("project_id", "member_id")
+            )
+            bulk_notifications = [
+                notification
+                for notification in bulk_notifications
+                if notification.project_id is None
+                or (notification.project_id, notification.receiver_id) in active_memberships
+            ]
+
             # Bulk create notifications
             Notification.objects.bulk_create(bulk_notifications, batch_size=100)
             EmailNotificationLog.objects.bulk_create(bulk_email_logs, batch_size=100, ignore_conflicts=True)

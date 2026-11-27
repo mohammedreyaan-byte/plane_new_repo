@@ -69,7 +69,7 @@ export function InstanceEmailForm(props: IInstanceEmailForm) {
       EMAIL_USE_TLS: config.EMAIL_USE_TLS || "0",
       EMAIL_USE_SSL: config.EMAIL_USE_SSL || "0",
       EMAIL_FROM: config.EMAIL_FROM || "",
-      EMAIL_TIMEOUT: config.EMAIL_TIMEOUT || "30",
+      EMAIL_TIMEOUT: config.EMAIL_TIMEOUT || "10",
       ENABLE_SMTP: config.ENABLE_SMTP || "0",
     },
   });
@@ -104,7 +104,7 @@ export function InstanceEmailForm(props: IInstanceEmailForm) {
       key: "EMAIL_TIMEOUT",
       type: "text",
       label: "Connection timeout (seconds)",
-      placeholder: "30",
+      placeholder: "10",
       error: Boolean(errors.EMAIL_TIMEOUT),
       required: true,
     },
@@ -188,7 +188,15 @@ export function InstanceEmailForm(props: IInstanceEmailForm) {
     }
   };
 
-  const testStatus = config.EMAIL_LAST_TEST_STATUS;
+  const testStatus = (config.EMAIL_LAST_TEST_STATUS || "").toLowerCase();
+  const testStatusLabel: Record<string, string> = {
+    queued: "Queued",
+    success: "Successful",
+    failed: "Failed",
+  };
+  const testStatusMessage = testStatus
+    ? `${testStatusLabel[testStatus] || testStatus}${config.EMAIL_LAST_TEST_AT ? ` · ${config.EMAIL_LAST_TEST_AT}` : ""}`
+    : "";
 
   return (
     <div className="space-y-8">
@@ -259,9 +267,10 @@ export function InstanceEmailForm(props: IInstanceEmailForm) {
       </div>
       {testStatus && (
         <div className="max-w-4xl rounded-md border border-subtle p-3 text-13 text-tertiary">
-          <div className={`font-medium ${testStatus === "failed" ? "text-danger-primary" : ""}`}>
-            Last test email: {testStatus === "success" ? "Successful" : "Failed"}
-            {config.EMAIL_LAST_TEST_AT ? ` · ${config.EMAIL_LAST_TEST_AT}` : ""}
+          <div
+            className={`font-medium ${testStatus === "failed" ? "text-danger-primary" : ""} ${testStatus === "queued" ? "text-tertiary" : ""}`}
+          >
+            Last test email: {testStatusMessage}
           </div>
           {config.EMAIL_LAST_TEST_MESSAGE && <div className="mt-1 text-tertiary">{config.EMAIL_LAST_TEST_MESSAGE}</div>}
         </div>

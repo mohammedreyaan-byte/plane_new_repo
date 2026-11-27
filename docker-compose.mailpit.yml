@@ -1,0 +1,30 @@
+# Private local Mailpit relay for staging-style email validation.
+#
+# Usage:
+#   docker compose -f docker-compose.mailpit.yml up -d
+#   Open http://127.0.0.1:8025
+#
+# SMTP is only reachable from compose networks; the UI is bound to loopback.
+# This file does not modify the default application stack.
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27.0
+    container_name: plane-mailpit
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - mailpit_env
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8025/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  mailpit_env:
+    driver: bridge

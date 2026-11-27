@@ -19,6 +19,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 # Module imports
+from plane.api.rate_limit import record_invitation_accept
 from plane.app.permissions import ROLE, WorkSpaceAdminPermission, allow_permission
 from plane.app.serializers import (
     WorkSpaceMemberInviteSerializer,
@@ -221,9 +222,11 @@ class WorkspaceInvitationsViewset(BaseViewSet):
     )
     def partial_update(self, request, slug, pk):
         """Change the role attached to a pending invitation."""
-        invitation = WorkspaceMemberInvite.objects.select_related("workspace", "role_ref").filter(
-            pk=pk, workspace__slug=slug
-        ).first()
+        invitation = (
+            WorkspaceMemberInvite.objects.select_related("workspace", "role_ref")
+            .filter(pk=pk, workspace__slug=slug)
+            .first()
+        )
         if invitation is None:
             return Response({"error": "Invitation not found"}, status=status.HTTP_404_NOT_FOUND)
         if invitation.responded_at is not None:
@@ -268,9 +271,9 @@ class WorkspaceInvitationResendEndpoint(BaseAPIView):
 
     @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="member.manage")
     def post(self, request, slug, pk):
-        invitation = WorkspaceMemberInvite.objects.select_related("workspace").filter(
-            pk=pk, workspace__slug=slug
-        ).first()
+        invitation = (
+            WorkspaceMemberInvite.objects.select_related("workspace").filter(pk=pk, workspace__slug=slug).first()
+        )
         if invitation is None:
             return Response({"error": "Invitation not found"}, status=status.HTTP_404_NOT_FOUND)
         if invitation.responded_at is not None:
@@ -337,9 +340,7 @@ class WorkspaceBulkInviteEndpoint(BaseAPIView):
 
             if not email:
                 failed += 1
-                results.append(
-                    {"email": "", "status": "invalid", "member_id": None, "error": "Email is required"}
-                )
+                results.append({"email": "", "status": "invalid", "member_id": None, "error": "Email is required"})
                 continue
 
             try:
@@ -499,6 +500,9 @@ class WorkspaceJoinEndpoint(BaseAPIView):
     @invalidate_cache(path="/api/users/me/settings/", multiple=True)
     def post(self, request, slug, pk):
         workspace_invite = WorkspaceMemberInvite.objects.get(pk=pk, workspace__slug=slug)
+        # Limit token guessing per client IP and per invited address. Counting
+        # happens before token/email comparison so the response stays generic.
+        record_invitation_accept(request, workspace_invite.email)
         inviter = getattr(workspace_invite, "created_by", None)
         inviter_email = getattr(inviter, "email", "")
         current_site = base_host(request=request, is_app=True)

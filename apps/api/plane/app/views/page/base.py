@@ -48,6 +48,7 @@ from plane.db.models import (
     UserRecentVisit,
 )
 from plane.utils.error_codes import ERROR_CODES
+from plane.utils.permissions.project_scope import scoped_get_or_404
 
 # Local imports
 from ..base import BaseAPIView, BaseViewSet
@@ -488,9 +489,10 @@ class PageFavoriteViewSet(BaseViewSet):
 
     @allow_permission([ROLE.ADMIN, ROLE.MEMBER])
     def create(self, request, slug, project_id, page_id):
+        page = scoped_get_or_404(Page.objects.filter(workspace__slug=slug, project_id=project_id), pk=page_id)
         _ = UserFavorite.objects.create(
             project_id=project_id,
-            entity_identifier=page_id,
+            entity_identifier=page.id,
             entity_type="page",
             user=request.user,
         )

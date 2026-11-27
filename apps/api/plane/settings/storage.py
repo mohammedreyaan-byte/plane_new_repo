@@ -33,8 +33,10 @@ class S3Storage(S3Boto3Storage):
         self.aws_region = os.environ.get("AWS_REGION")
         # Use the AWS_S3_ENDPOINT_URL environment variable for the endpoint URL
         self.aws_s3_endpoint_url = os.environ.get("AWS_S3_ENDPOINT_URL") or os.environ.get("MINIO_ENDPOINT_URL")
-        # Use the SIGNED_URL_EXPIRATION environment variable for the expiration time (default: 3600 seconds)
-        self.signed_url_expiration = int(os.environ.get("SIGNED_URL_EXPIRATION", "3600"))
+        # Short-lived signed URLs by default (15 minutes). Deployments may
+        # override with SIGNED_URL_EXPIRATION, but values above 900 seconds
+        # weaken access revocation and must be justified in the security docs.
+        self.signed_url_expiration = int(os.environ.get("SIGNED_URL_EXPIRATION", "900"))
 
         if os.environ.get("USE_MINIO") == "1":
             # Determine protocol based on environment variable

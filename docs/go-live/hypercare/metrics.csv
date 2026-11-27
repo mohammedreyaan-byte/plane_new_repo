@@ -1,0 +1,2 @@
+date,day,active_users,items_created,transitions,email_delivered,email_failed,webhook_failures,error_rate,p95_latency_ms,p0_open,p1_open,evidence_file,recorded_by
+,,,,,,,,,,,,,

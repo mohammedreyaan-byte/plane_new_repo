@@ -12,8 +12,13 @@ from django.template.loader import render_to_string
 from plane.bgtasks.email_task import deliver_email_message
 from plane.db.models import Project, ProjectMemberInvite, User
 from plane.license.utils.instance_value import is_smtp_enabled
-from plane.utils.email import generate_plain_text_from_html
+from plane.utils.email import generate_plain_text_from_html, truncate_email_subject
 from plane.utils.exception_logger import log_exception
+from plane.utils.unsubscribe import (
+    build_unsubscribe_url,
+    email_preference_allows,
+    is_email_unsubscribed,
+)
 
 
 @shared_task
@@ -22,11 +27,19 @@ def project_invitation(email, project_id, token, current_site, invitor):
         user = User.objects.get(email=invitor)
         project = Project.objects.get(pk=project_id)
         project_member_invite = ProjectMemberInvite.objects.get(token=token, email=email)
+        invitee = User.objects.filter(email__iexact=email).first()
+
+        if is_email_unsubscribed(email, "project_invitation") or (
+            invitee is not None and not email_preference_allows(invitee, "project_invitation", project=project)
+        ):
+            return
 
         relativelink = f"/project-invitations/?invitation_id={project_member_invite.id}&email={email}&slug={project.workspace.slug}&project_id={str(project_id)}"  # noqa: E501
         abs_url = current_site + relativelink
 
-        subject = f"{user.first_name or user.display_name or user.email} invited you to join {project.name} on Plane"
+        subject = truncate_email_subject(
+            f"{user.first_name or user.display_name or user.email} invited you to join {project.name} on Plane"
+        )
 
         context = {
             "email": email,
@@ -34,6 +47,14 @@ def project_invitation(email, project_id, token, current_site, invitor):
             "project_name": project.name,
             "invitation_url": abs_url,
             "current_site": current_site,
+            "mirror": current_site,
+            "unsubscribe": build_unsubscribe_url(
+                invitee,
+                email,
+                "project_invitation",
+                workspace=project.workspace,
+                project=project,
+            ),
         }
 
         html_content = render_to_string("emails/invitations/project_invitation.html", context)

@@ -62,6 +62,7 @@ from .notification import (
     EmailNotificationLog,
     EmailSuppression,
     Notification,
+    UnsubscribeToken,
     UserNotificationPreference,
 )
 from .page import Page, PageLabel, PageLog, ProjectPage, PageVersion

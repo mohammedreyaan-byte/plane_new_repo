@@ -29,6 +29,7 @@ from rest_framework.response import Response
 # Module imports
 from plane.app.views.base import BaseAPIView
 from plane.app.permissions import WorkspaceUserPermission
+from plane.utils.permissions.project_scope import active_project_membership, guest_visibility_q
 from plane.db.models import (
     Workspace,
     Project,
@@ -95,6 +96,7 @@ class GlobalSearchEndpoint(BaseAPIView):
 
         issues = Issue.issue_objects.filter(
             q,
+            guest_visibility_q(self.request.user),
             project__project_projectmember__member=self.request.user,
             project__project_projectmember__is_active=True,
             project__archived_at__isnull=True,
@@ -122,6 +124,7 @@ class GlobalSearchEndpoint(BaseAPIView):
 
         cycles = Cycle.objects.filter(
             q,
+            guest_visibility_q(self.request.user),
             project__project_projectmember__member=self.request.user,
             project__project_projectmember__is_active=True,
             project__archived_at__isnull=True,
@@ -146,6 +149,7 @@ class GlobalSearchEndpoint(BaseAPIView):
 
         modules = Module.objects.filter(
             q,
+            guest_visibility_q(self.request.user),
             project__project_projectmember__member=self.request.user,
             project__project_projectmember__is_active=True,
             project__archived_at__isnull=True,
@@ -171,6 +175,7 @@ class GlobalSearchEndpoint(BaseAPIView):
         pages = (
             Page.objects.filter(
                 q,
+                guest_visibility_q(self.request.user, project_field="projects"),
                 projects__project_projectmember__member=self.request.user,
                 projects__project_projectmember__is_active=True,
                 projects__archived_at__isnull=True,
@@ -216,6 +221,7 @@ class GlobalSearchEndpoint(BaseAPIView):
 
         issue_views = IssueView.objects.filter(
             q,
+            guest_visibility_q(self.request.user),
             project__project_projectmember__member=self.request.user,
             project__project_projectmember__is_active=True,
             project__archived_at__isnull=True,
@@ -246,6 +252,7 @@ class GlobalSearchEndpoint(BaseAPIView):
 
         issues = Issue.objects.filter(
             q,
+            guest_visibility_q(self.request.user),
             project__project_projectmember__member=self.request.user,
             project__project_projectmember__is_active=True,
             project__archived_at__isnull=True,
@@ -313,6 +320,13 @@ class SearchEndpoint(BaseAPIView):
         project_id = request.query_params.get("project_id", None)
 
         response_data = {}
+
+        if project_id:
+            if not active_project_membership(request.user, project_id=project_id, workspace_slug=slug):
+                return Response(
+                    {"results": {query_type: [] for query_type in query_types}},
+                    status=status.HTTP_200_OK,
+                )
 
         if project_id:
             for query_type in query_types:
@@ -400,6 +414,7 @@ class SearchEndpoint(BaseAPIView):
                     issues = (
                         Issue.issue_objects.filter(
                             q,
+                            guest_visibility_q(self.request.user),
                             project__project_projectmember__member=self.request.user,
                             project__project_projectmember__is_active=True,
                             workspace__slug=slug,

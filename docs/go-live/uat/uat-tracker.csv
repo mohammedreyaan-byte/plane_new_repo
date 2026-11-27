@@ -1,0 +1,13 @@
+id,scenario,result,tester,date,evidence_file,defect_id,notes
+UAT-01,Workspace and project access,Pending,,,,,Not executed
+UAT-02,Create and classify work,Pending,,,,,Not executed
+UAT-03,Bug workflow,Pending,,,,,Not executed
+UAT-04,Task Story and Epic workflows,Pending,,,,,Not executed
+UAT-05,Backlog and sprint,Pending,,,,,Not executed
+UAT-06,Board and filters,Pending,,,,,Not executed
+UAT-07,Modules and Epic linkage,Pending,,,,,Not executed
+UAT-08,Reporting,Pending,,,,,Not executed
+UAT-09,Notifications and email,Pending,,,,,Not executed
+UAT-10,GitHub and Slack,Pending,,,,,Not executed
+UAT-11,CI and service tokens,Pending,,,,,Not executed
+UAT-12,Security and isolation,Pending,,,,,Not executed

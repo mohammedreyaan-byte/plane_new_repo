@@ -23,6 +23,7 @@ from plane.db.models import (
     ProjectMember,
 )
 from plane.utils.build_chart import build_analytics_chart
+from plane.utils.permissions.project_scope import project_queryset
 from plane.utils.date_utils import (
     get_analytics_filters,
 )
@@ -71,8 +72,15 @@ class AdvanceAnalyticsEndpoint(AdvanceAnalyticsBaseView):
         if self.request.GET.get("project_ids", None):
             project_ids = self.request.GET.get("project_ids", None)
             project_ids = [str(project_id) for project_id in project_ids.split(",")]
+            accessible_project_ids = {
+                str(project_id)
+                for project_id in project_queryset(self.request.user, self._workspace_slug).values_list("id", flat=True)
+            }
             members_query = ProjectMember.objects.filter(
-                project_id__in=project_ids, is_active=True, member__is_bot=False
+                project_id__in=set(project_ids) & accessible_project_ids,
+                workspace__slug=self._workspace_slug,
+                is_active=True,
+                member__is_bot=False,
             )
 
         return {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Due today: {{ issue_name }}</title>
+    <title>{{ reminder_label }}: {{ issue_name }}</title>
   </head>
   <body
     style="
@@ -21,8 +21,8 @@
   >
     <p>Hello,</p>
     <p>
-      The work item <strong>{{ issue_name }}</strong> in <strong>{{ project_name }}</strong> is due today ({{
-      target_date }}) in <strong>{{ workspace_name }}</strong>.
+      The work item <strong>{{ issue_name }}</strong> in <strong>{{ project_name }}</strong> is {{
+      reminder_phrase }} ({{ target_date }}) in <strong>{{ workspace_name }}</strong>.
     </p>
     <p>
       <a href="{{ issue_url }}">Open the work item</a>

@@ -10,6 +10,10 @@ node_modules
 
 # Testing
 /coverage
+**/playwright-report/
+**/test-results/
+**/blob-report/
+/load-tests/results/
 
 # Next.js
 /.next/
@@ -110,7 +114,10 @@ build/
 build/
 .react-router/
 temp/
-scripts/
+scripts/*
+!scripts/backup/
+!scripts/pln026/
+!scripts/go-live/
 !packages/i18n/scripts/
 
 # i18n auto-generated types (regenerated on every build)

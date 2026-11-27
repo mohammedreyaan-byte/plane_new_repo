@@ -46,12 +46,14 @@ def dispatch_slack_event(
 ) -> List[str]:
     """Post a work item event to every subscribed Slack channel."""
 
+    from plane.utils.e2e_event_sink import e2e_event_sink_enabled, record_e2e_event
     from plane.utils.gmc_integrations import ProviderAPIError, post_slack_message
 
     issue = Issue.all_objects.select_related("project", "project__workspace", "state").get(pk=issue_id)
     actor = User.objects.filter(pk=actor_id).first() if actor_id else None
     payload = _message_payload(issue, event_type, origin)
     log_ids: List[str] = []
+    sink_enabled = e2e_event_sink_enabled()
 
     subscriptions = (
         SlackChannelSubscription.objects.filter(
@@ -67,22 +69,42 @@ def dispatch_slack_event(
         events = subscription.events or {}
         if not events.get(event_type):
             continue
-        token = subscription.integration.get_access_token()
-        if not token:
+        token = "" if sink_enabled else subscription.integration.get_access_token()
+        if not sink_enabled and not token:
             continue
         status = "sent"
         error = ""
         provider_message_id = ""
-        try:
-            response = post_slack_message(token, subscription.channel_id, payload["text"], payload["blocks"])
-            provider_message_id = str(response.get("ts", ""))
+        delivered = True
+        if sink_enabled:
+            delivered = record_e2e_event(
+                "messages",
+                {
+                    "provider": "slack",
+                    "event_type": event_type,
+                    "event": event_type,
+                    "channel": subscription.channel_name,
+                    "text": payload["text"],
+                    "work_item_identifier": payload["work_item_identifier"],
+                    "url": payload["url"],
+                },
+            )
+        else:
+            try:
+                response = post_slack_message(token, subscription.channel_id, payload["text"], payload["blocks"])
+                provider_message_id = str(response.get("ts", ""))
+            except ProviderAPIError as exc:
+                status = "failed"
+                delivered = False
+                error = str(exc)
+        if delivered:
             SlackChannelSubscription.objects.filter(pk=subscription.pk).update(
                 last_posted_at=timezone.now(), last_error=""
             )
-        except ProviderAPIError as exc:
-            status = "failed"
-            error = str(exc)
-            SlackChannelSubscription.objects.filter(pk=subscription.pk).update(last_error=error)
+        else:
+            SlackChannelSubscription.objects.filter(pk=subscription.pk).update(
+                last_error=error or "e2e sink delivery failed"
+            )
         log = ExternalMessageLog.objects.create(
             workspace_id=issue.workspace_id,
             project_id=project_id,
@@ -95,7 +117,11 @@ def dispatch_slack_event(
             provider_message_id=provider_message_id,
             error=error,
             sent_at=timezone.now() if status == "sent" else None,
-            metadata={"work_item": payload["work_item_identifier"], "url": payload["url"], "actor": actor.email if actor else ""},
+            metadata={
+                "work_item": payload["work_item_identifier"],
+                "url": payload["url"],
+                "actor": actor.email if actor else "",
+            },
         )
         log_ids.append(str(log.id))
     return log_ids

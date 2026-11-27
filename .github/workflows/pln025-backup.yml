@@ -1,0 +1,147 @@
+name: PLN-025 backup and restore drill
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-restore-drill:
+    name: Isolated backup/restore drill
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: pln025-drill-${{ github.run_id }}
+      PLN025_PROJECT_ROOT: ${{ github.workspace }}
+      PLN025_BACKUPS_HOST_DIR: ${{ runner.temp }}/pln025-backups
+      COMPOSE_FILES: -f docker-compose-test.yml -f scripts/backup/docker-compose-test.pln025.yml
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare test environment
+        run: |
+          set -euo pipefail
+          cp apps/api/.env.example apps/api/.env
+          mkdir -p "$PLN025_BACKUPS_HOST_DIR" "$RUNNER_TEMP/pln025-logs"
+          docker compose version
+
+      - name: Run PLN-025 backup script unit tests
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose-test.yml \
+            -f scripts/backup/docker-compose-test.pln025.yml \
+            -p "pln025-tests-${{ github.run_id }}" \
+            run --rm --build api-tests \
+            pytest plane/tests/unit/test_backup_scripts.py -vv
+
+      - name: Start isolated Postgres and MinIO
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose-test.yml \
+            -f scripts/backup/docker-compose-test.pln025.yml \
+            -p "$PROJECT" up -d test-db test-minio
+
+      - name: Export non-secret bucket name for the drill
+        run: |
+          set -euo pipefail
+          bucket=$(sed -n 's/^AWS_S3_BUCKET_NAME=//p' apps/api/.env | head -n 1 | tr -d '"')
+          echo "PLN025_BUCKET=$bucket" >> "$GITHUB_ENV"
+
+      - name: Run backup against the isolated stack
+        run: |
+          set -euo pipefail
+          mc_cmd="docker compose -f docker-compose-test.yml -f scripts/backup/docker-compose-test.pln025.yml -p $PROJECT exec -T test-minio mc"
+          python3 scripts/backup/backup_tool.py \
+            --backup-root "$PLN025_BACKUPS_HOST_DIR" \
+            --db-name "${POSTGRES_DB:-plane}" \
+            --compose-file docker-compose-test.yml \
+            --compose-file scripts/backup/docker-compose-test.pln025.yml \
+            --compose-project "$PROJECT" \
+            --db-service test-db \
+            --mc-command "$mc_cmd" \
+            --object-source "local/${PLN025_BUCKET}" \
+            --object-destination "/pln025-backups/{artifact}/objects" \
+            --mc-path-map "/pln025-backups=$PLN025_BACKUPS_HOST_DIR" \
+            --correlation-id "$PROJECT" \
+            | tee "$RUNNER_TEMP/pln025-logs/backup.log"
+          artifact=$(sed -n 's/^ARTIFACT_DIR=//p' "$RUNNER_TEMP/pln025-logs/backup.log")
+          test -n "$artifact"
+          echo "ARTIFACT_DIR=$artifact" >> "$GITHUB_ENV"
+
+      - name: Verify manifest and dump list
+        run: |
+          set -euo pipefail
+          python3 scripts/backup/verify_backup.py \
+            --backup-dir "$ARTIFACT_DIR" \
+            --run-pg-restore \
+            --compose-file docker-compose-test.yml \
+            --compose-file scripts/backup/docker-compose-test.pln025.yml \
+            --compose-project "$PROJECT" \
+            --db-service test-db \
+            2>&1 | tee "$RUNNER_TEMP/pln025-logs/verify.log"
+
+      - name: Restore into plane_restore (dry run)
+        run: |
+          set -euo pipefail
+          mc_cmd="docker compose -f docker-compose-test.yml -f scripts/backup/docker-compose-test.pln025.yml -p $PROJECT exec -T test-minio mc"
+          python3 scripts/backup/restore_tool.py \
+            --backup-dir "$ARTIFACT_DIR" \
+            --target-db plane_restore \
+            --confirm --dry-run \
+            --compose-file docker-compose-test.yml \
+            --compose-file scripts/backup/docker-compose-test.pln025.yml \
+            --compose-project "$PROJECT" \
+            --db-service test-db \
+            --mc-command "$mc_cmd" \
+            --object-target-bucket "restore-${PROJECT}" \
+            --mc-path-map "/pln025-backups=$PLN025_BACKUPS_HOST_DIR" \
+            2>&1 | tee "$RUNNER_TEMP/pln025-logs/restore-dry-run.log"
+
+      - name: Restore into plane_restore
+        run: |
+          set -euo pipefail
+          mc_cmd="docker compose -f docker-compose-test.yml -f scripts/backup/docker-compose-test.pln025.yml -p $PROJECT exec -T test-minio mc"
+          python3 scripts/backup/restore_tool.py \
+            --backup-dir "$ARTIFACT_DIR" \
+            --target-db plane_restore \
+            --confirm \
+            --compose-file docker-compose-test.yml \
+            --compose-file scripts/backup/docker-compose-test.pln025.yml \
+            --compose-project "$PROJECT" \
+            --db-service test-db \
+            --mc-command "$mc_cmd" \
+            --object-target-bucket "restore-${PROJECT}" \
+            --mc-path-map "/pln025-backups=$PLN025_BACKUPS_HOST_DIR" \
+            2>&1 | tee "$RUNNER_TEMP/pln025-logs/restore.log"
+
+      - name: Verify restored database contents
+        run: |
+          set -euo pipefail
+          pg_user=$(sed -n 's/^POSTGRES_USER=//p' apps/api/.env | head -n 1 | tr -d '"')
+          docker compose -f docker-compose-test.yml \
+            -f scripts/backup/docker-compose-test.pln025.yml \
+            -p "$PROJECT" exec -T test-db \
+            psql -U "$pg_user" -d plane_restore \
+            < docs/runbooks/restore-verify.sql \
+            2>&1 | tee "$RUNNER_TEMP/pln025-logs/restore-verify.log"
+
+      - name: Upload drill artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pln025-drill-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pln025-logs/*.log
+            ${{ env.ARTIFACT_DIR }}/manifest.json
+            ${{ env.ARTIFACT_DIR }}/restore-list.txt
+          if-no-files-found: warn
+
+      - name: Stop isolated stack
+        if: always()
+        run: |
+          docker compose -f docker-compose-test.yml \
+            -f scripts/backup/docker-compose-test.pln025.yml \
+            -p "$PROJECT" down --remove-orphans

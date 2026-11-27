@@ -1,0 +1,203 @@
+name: PLN-026 k6 load suite
+
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "k6 scenario"
+        required: true
+        default: average
+        type: choice
+        options:
+          - smoke
+          - average
+          - stress
+          - spike
+          - soak
+      environment:
+        description: "Dedicated target environment"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - local
+          - staging
+  workflow_call:
+    inputs:
+      scenario:
+        description: "k6 scenario"
+        required: false
+        default: average
+        type: string
+      environment:
+        description: "Dedicated target environment"
+        required: false
+        default: staging
+        type: string
+    secrets:
+      PLN026_STAGING_URL:
+        required: false
+      E2E_LOAD_API_TOKEN:
+        required: false
+      PLN026_LOAD_PROJECT_ID:
+        required: false
+      PLN026_LOAD_WORKSPACE_SLUG:
+        required: false
+      LOAD_PROMETHEUS_URL:
+        required: false
+      LOAD_PROMETHEUS_TOKEN:
+        required: false
+      LOAD_QUEUE_QUERY:
+        required: false
+      LOAD_DB_RATIO_QUERY:
+        required: false
+      LOAD_MEMORY_QUERY:
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  k6:
+    name: k6 ${{ inputs.scenario || 'average' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      LOAD_SCENARIO: ${{ inputs.scenario || 'average' }}
+      LOAD_ENV: ${{ inputs.environment || 'staging' }}
+      LOAD_BASE_URL: ${{ secrets.PLN026_STAGING_URL || vars.PLN026_STAGING_URL }}
+      LOAD_SERVICE_TOKEN: ${{ secrets.E2E_LOAD_API_TOKEN }}
+      LOAD_PROJECT_ID: ${{ secrets.PLN026_LOAD_PROJECT_ID }}
+      LOAD_WORKSPACE_SLUG: ${{ secrets.PLN026_LOAD_WORKSPACE_SLUG || 'load' }}
+      LOAD_ALLOW_LOCAL_STAGING: "1"
+      LOAD_SUMMARY_PATH: load-tests/results/k6-${{ inputs.scenario || 'average' }}.json
+      LOAD_PROMETHEUS_URL: ${{ secrets.LOAD_PROMETHEUS_URL || vars.LOAD_PROMETHEUS_URL }}
+      LOAD_PROMETHEUS_TOKEN: ${{ secrets.LOAD_PROMETHEUS_TOKEN }}
+      LOAD_QUEUE_QUERY: ${{ secrets.LOAD_QUEUE_QUERY || vars.LOAD_QUEUE_QUERY }}
+      LOAD_DB_RATIO_QUERY: ${{ secrets.LOAD_DB_RATIO_QUERY || vars.LOAD_DB_RATIO_QUERY }}
+      LOAD_MEMORY_QUERY: ${{ secrets.LOAD_MEMORY_QUERY || vars.LOAD_MEMORY_QUERY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Staging default: nightly, release and reusable-call runs must supply
+      # observability inputs. Only an explicit LOAD_ENV=local may omit the
+      # automated gates and attach Grafana evidence manually.
+      - name: Require observability config for non-local runs
+        if: ${{ env.LOAD_ENV != 'local' }}
+        run: |
+          set -euo pipefail
+          missing=""
+          if [ -z "${LOAD_PROMETHEUS_URL:-}" ]; then missing="${missing} LOAD_PROMETHEUS_URL"; fi
+          if [ -z "${LOAD_QUEUE_QUERY:-}" ]; then missing="${missing} LOAD_QUEUE_QUERY"; fi
+          if [ -z "${LOAD_DB_RATIO_QUERY:-}" ]; then missing="${missing} LOAD_DB_RATIO_QUERY"; fi
+          if [ -z "${LOAD_MEMORY_QUERY:-}" ]; then missing="${missing} LOAD_MEMORY_QUERY"; fi
+          if [ -n "$missing" ]; then
+            echo "Missing required observability configuration for non-local runs:${missing}"
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          k6_version="v0.58.0"
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${k6_version}/k6-${k6_version}-linux-amd64.tar.gz" \
+            -o k6.tgz
+          tar -xzf k6.tgz
+          sudo install -m 0755 "k6-${k6_version}-linux-amd64/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: Verify dedicated non-production target
+        run: |
+          set -euo pipefail
+          case "$LOAD_ENV" in
+            local|staging) ;;
+            *) echo "LOAD_ENV must be local or staging for load generation"; exit 1 ;;
+          esac
+          if [ -z "${LOAD_BASE_URL:-}" ] || [ -z "${LOAD_PROJECT_ID:-}" ] || [ -z "${LOAD_SERVICE_TOKEN:-}" ]; then
+            echo "PLN-026 load secrets are not configured for this environment"
+            exit 1
+          fi
+
+      - name: Prepare results directory
+        run: mkdir -p load-tests/results
+
+      - name: Download prior average summary as baseline
+        if: ${{ inputs.scenario == 'average' || github.event_name == 'schedule' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pln026-baseline"
+          since=$(date -u -d '14 days ago' +%Y-%m-%d)
+          for run_id in $(gh run list --workflow pln026-load.yml --status success \
+              --created ">=$since" --json databaseId --jq '.[].databaseId'); do
+            if [ "$run_id" = "${{ github.run_id }}" ]; then
+              continue
+            fi
+            artifact_names=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              --jq '.artifacts[].name | select(startswith("pln026-k6-average-"))' || true)
+            for artifact_name in $artifact_names; do
+              gh run download "$run_id" -n "$artifact_name" \
+                -D "$RUNNER_TEMP/pln026-baseline" || true
+              break 2
+            done
+          done
+
+      - name: Run k6 scenario
+        run: |
+          set -o pipefail
+          k6 run load-tests/runner.js 2>&1 | tee "load-tests/results/k6-${LOAD_SCENARIO}.log"
+
+      - name: Verify k6 summary thresholds and p99 ratio
+        if: always()
+        run: |
+          set -euo pipefail
+          node load-tests/verify-summary.js \
+            "$LOAD_SUMMARY_PATH" \
+            load-tests/results/summary-verification.md
+
+      - name: Build performance diff
+        if: always()
+        run: |
+          baseline="$RUNNER_TEMP/pln026-baseline/k6-${LOAD_SCENARIO}.json"
+          if [ ! -f "$baseline" ]; then
+            baseline=""
+          fi
+          node scripts/pln026/performance-diff.js \
+            --baseline "$baseline" \
+            --candidate "$LOAD_SUMMARY_PATH" \
+            --output load-tests/results/performance-diff.md \
+            --scenario "$LOAD_SCENARIO"
+
+      - name: Upload k6 JSON and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pln026-k6-${{ env.LOAD_SCENARIO }}-${{ github.run_id }}
+          path: |
+            load-tests/results/k6-*.json
+            load-tests/results/k6-*.log
+            load-tests/results/performance-diff.md
+            load-tests/results/summary-verification.md
+            load-tests/results/grafana-*
+            load-tests/results/explain-*.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload performance diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pln026-performance-diff
+          path: load-tests/results/performance-diff.md
+          retention-days: 30
+          if-no-files-found: warn

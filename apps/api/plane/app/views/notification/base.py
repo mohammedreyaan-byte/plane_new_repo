@@ -25,6 +25,7 @@ from plane.db.models import (
 )
 from plane.utils.paginator import BasePaginator
 from plane.utils.order_queryset import NOTIFICATION_ORDER_BY_ALLOWLIST, sanitize_order_by
+from plane.utils.permissions.project_scope import project_queryset
 from plane.app.permissions import allow_permission, ROLE
 
 # Module imports
@@ -65,6 +66,10 @@ class NotificationViewSet(BaseViewSet, BasePaginator):
         notifications = (
             Notification.objects.filter(workspace__slug=slug, receiver_id=request.user.id)
             .filter(Q(entity_name="issue") | Q(entity_name="page"))
+            .filter(
+                Q(project__isnull=True)
+                | Q(project_id__in=project_queryset(request.user, slug).values_list("id", flat=True))
+            )
             .annotate(is_inbox_issue=Exists(intake_issue))
             .annotate(is_intake_issue=Exists(intake_issue))
             .annotate(

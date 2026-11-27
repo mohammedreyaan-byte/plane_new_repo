@@ -52,3 +52,30 @@ export type TInstanceSmtpConfigurationUpdate = Partial<
 > & {
   EMAIL_HOST_PASSWORD?: string;
 };
+
+/** Result of the asynchronous admin "Send test email" action. */
+export interface IInstanceSmtpTestStatus {
+  state: "idle" | "queued" | "success" | "failed";
+  status: string;
+  message: string;
+  at: string;
+}
+
+/** Safe, non-secret summary of one delivery attempt. */
+export interface IEmailDeliveryLog {
+  id: string;
+  receiver_email: string;
+  entity_name: string;
+  entity_identifier: string | null;
+  entity: string;
+  state: "delivered" | "failed" | "pending";
+  attempts: number;
+  last_error: string;
+  next_retry_at: string | null;
+  processed_at: string | null;
+  sent_at: string | null;
+  created_at: string;
+  data?: unknown;
+  old_value?: string | null;
+  new_value?: string | null;
+}

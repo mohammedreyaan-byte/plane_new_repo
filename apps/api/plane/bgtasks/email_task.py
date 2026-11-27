@@ -20,7 +20,12 @@ from django.utils import timezone
 # Module imports
 from plane.db.models import EmailNotificationLog
 from plane.license.utils.instance_value import is_smtp_enabled
-from plane.utils.smtp import SMTPConfigurationError, is_email_suppressed, send_email_message
+from plane.utils.smtp import (
+    SMTPConfigurationError,
+    describe_smtp_error,
+    is_email_suppressed,
+    send_email_message,
+)
 
 
 def max_delivery_attempts():
@@ -59,7 +64,9 @@ def mark_delivery_failure(log_ids, message, terminal=False):
         values = {
             "attempts": attempts,
             "last_error": error_message,
-            "next_retry_at": None if terminal or attempts >= ceiling else now + timedelta(seconds=retry_delay_for_attempt(attempts)),  # noqa: E501
+            "next_retry_at": None
+            if terminal or attempts >= ceiling
+            else now + timedelta(seconds=retry_delay_for_attempt(attempts)),  # noqa: E501
         }
         EmailNotificationLog.objects.filter(pk=log.pk).update(**values)
 
@@ -116,6 +123,37 @@ def send_email(subject, body, recipients, html_body=None, log_ids=None):
         html_body=html_body,
         log_ids=log_ids,
     )
+
+
+@shared_task
+def send_test_email(receiver_email):
+    """Send the admin test email off-request and persist the outcome.
+
+    The worker re-reads the database-backed configuration; credentials are never
+    serialised onto the queue. Failures are stored as a terminal result so the
+    admin UI can surface a safe error without retrying authentication failures.
+    """
+
+    # Imported lazily: the admin view module also imports this task module.
+    from plane.license.api.views.configuration import _set_email_test_result
+
+    try:
+        send_email_message(
+            subject="Email Notification from Plane",
+            body="This is a sample email notification sent from Plane application.",
+            recipients=[receiver_email],
+        )
+    except SMTPConfigurationError as error:
+        message = str(error)
+        _set_email_test_result("failed", message)
+        return {"state": "failed", "message": message}
+    except Exception as error:  # pragma: no cover - defensive guard for workers
+        message = describe_smtp_error(error)
+        _set_email_test_result("failed", message)
+        return {"state": "failed", "message": message}
+
+    _set_email_test_result("success", "Test email sent successfully")
+    return {"state": "success", "message": "Test email sent successfully"}
 
 
 @shared_task

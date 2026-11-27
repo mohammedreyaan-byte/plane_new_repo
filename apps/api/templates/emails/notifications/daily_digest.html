@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Your daily Plane digest</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 24px;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      color: #474747;
+      background-color: #f9f9f9;
+    "
+  >
+    <p>Hello,</p>
+    <p>
+      You have <strong>{{ issue_count }}</strong> work item{{ issue_count|pluralize }} that are overdue or due soon.
+    </p>
+    <ul>
+      {% for issue in issues %}
+      <li>
+        <a href="{{ issue.url }}">{{ issue.identifier }}</a> — {{ issue.name }} ({{ issue.kind }}, due {{ issue.target_date }})
+      </li>
+      {% endfor %}
+    </ul>
+    {% if issue_count > issues|length %}
+    <p>Showing the first {{ issues|length }} items. Open Plane to see the rest.</p>
+    {% endif %}
+    <p>
+      <a href="{{ workspace_url }}">Open Plane</a>
+    </p>
+    <p>Regards,<br />Team Plane</p>
+  </body>
+</html>

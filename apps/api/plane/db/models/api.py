@@ -3,11 +3,13 @@
 # See the LICENSE file for details.
 
 # Python imports
+import hashlib
 from uuid import uuid4
 
 # Django imports
 from django.db import models
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 
 from .base import BaseModel
 
@@ -18,6 +20,11 @@ def generate_label_token():
 
 def generate_token():
     return "plane_api_" + uuid4().hex
+
+
+def hash_api_token(token):
+    """Deterministic lookup hash; the plaintext is never persisted for new tokens."""
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
 
 
 class APIToken(BaseModel):
@@ -37,6 +44,27 @@ class APIToken(BaseModel):
     expired_at = models.DateTimeField(blank=True, null=True)
     is_service = models.BooleanField(default=False)
     allowed_rate_limit = models.CharField(max_length=255, default="60/min")
+
+    # PLN-015: explicit scope and hashed lookup. ``projects`` empty means all
+    # projects in the token's workspace (legacy behaviour); a non-empty list
+    # restricts the token to those projects only.
+    token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True)
+    token_prefix = models.CharField(max_length=24, default="", db_index=True)
+    projects = ArrayField(models.UUIDField(default=uuid4), blank=True, null=True)
+    capabilities = models.JSONField(default=list, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.token_hash and self.token:
+            raw_token = self.token
+            self._plaintext_token = raw_token
+            self.token_hash = hash_api_token(raw_token)
+            self.token_prefix = raw_token[:24]
+            # Auto-generated tokens are only stored as a hash. Explicitly
+            # supplied tokens keep their plaintext value for legacy callers.
+            if raw_token.startswith("plane_api_"):
+                self.token = self.token_hash
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "API Token"

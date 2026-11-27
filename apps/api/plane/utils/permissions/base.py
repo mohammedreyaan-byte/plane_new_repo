@@ -47,8 +47,19 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None, 
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped_view(instance, request, *args, **kwargs):
+            # Imported here because this package imports the app permissions
+            # at module load time; a top-level import creates an import cycle.
+            from plane.utils.permissions import project_scope
+
             # Check for creator if required
             if creator and model:
+                if kwargs.get("project_id") and not project_scope.active_project_membership(
+                    request.user, project_id=kwargs["project_id"], workspace_slug=kwargs.get("slug")
+                ):
+                    return Response(
+                        {"error": "You don't have the required permissions."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
                 obj = model.objects.filter(id=kwargs["pk"], created_by=request.user).exists()
                 if obj:
                     return view_func(instance, request, *args, **kwargs)
@@ -96,6 +107,12 @@ def allow_permission(allowed_roles, level="PROJECT", creator=False, model=None, 
                         is_active=True,
                     ).exists()
                 ):
+                    project_scope.log_project_admin_override(
+                        request.user,
+                        project_id=kwargs.get("project_id"),
+                        slug=kwargs.get("slug"),
+                        request=request,
+                    )
                     return view_func(instance, request, *args, **kwargs)
 
             # Return permission denied if no conditions are met

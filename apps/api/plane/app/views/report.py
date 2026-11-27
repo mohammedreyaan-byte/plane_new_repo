@@ -39,6 +39,10 @@ def _filters_from_query(params):
 class ReportBaseEndpoint(BaseAPIView):
     """Resolves the project, hides it from non-members and honours ``reports_enabled``."""
 
+    # Reports already return 404 for non-members. Keep that contract while still
+    # using the central PLN-015 membership and token-scope check.
+    project_scope_hide_membership = True
+
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         project = Project.objects.filter(pk=kwargs["project_id"], workspace__slug=kwargs["slug"]).first()

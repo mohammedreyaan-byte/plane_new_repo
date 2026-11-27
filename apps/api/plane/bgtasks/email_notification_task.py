@@ -20,8 +20,9 @@ from plane.bgtasks.email_task import deliver_email_message, retry_failed_email_n
 from plane.db.models import EmailNotificationLog, Issue, User
 from plane.license.utils.instance_value import is_smtp_enabled
 from plane.settings.redis import redis_instance
-from plane.utils.email import generate_plain_text_from_html
+from plane.utils.email import generate_plain_text_from_html, truncate_email_subject
 from plane.utils.exception_logger import log_exception
+from plane.utils.unsubscribe import build_unsubscribe_url, email_preference_allows
 
 
 def remove_unwanted_characters(input_text):
@@ -182,6 +183,11 @@ def send_email_notification(issue_id, notification_data, receiver_id, email_noti
 
             receiver = User.objects.get(pk=receiver_id)
             issue = Issue.objects.get(pk=issue_id)
+            if not email_preference_allows(
+                receiver, "issue_updates", workspace=issue.project.workspace, project=issue.project
+            ):
+                release_lock(lock_id=lock_id)
+                return
             template_data = []
             total_changes = 0
             comments = []
@@ -239,8 +245,10 @@ def send_email_notification(issue_id, notification_data, receiver_id, email_noti
 
             summary = "Updates were made to the issue by"
 
-            # Send the mail
-            subject = f"{issue.project.identifier}-{issue.sequence_id} {remove_unwanted_characters(issue.name)}"
+            # Send the mail. Truncate only the subject; the full title stays in the body.
+            subject = truncate_email_subject(
+                f"{issue.project.identifier}-{issue.sequence_id} {remove_unwanted_characters(issue.name)}"
+            )
             context = {
                 "data": template_data,
                 "summary": summary,
@@ -256,6 +264,13 @@ def send_email_notification(issue_id, notification_data, receiver_id, email_noti
                 "workspace": str(issue.project.workspace.slug),
                 "project": str(issue.project.name),
                 "user_preference": f"{base_api}/{str(issue.project.workspace.slug)}/settings/account/notifications/",
+                "unsubscribe_url": build_unsubscribe_url(
+                    receiver,
+                    receiver.email,
+                    "issue_updates",
+                    workspace=issue.project.workspace,
+                    project=issue.project,
+                ),
                 "comments": comments,
                 "entity_type": "issue",
             }

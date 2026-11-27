@@ -62,7 +62,7 @@ def get_smtp_configuration(overrides=None):
         {"key": "EMAIL_USE_TLS", "default": getattr(settings, "EMAIL_USE_TLS", "1")},
         {"key": "EMAIL_USE_SSL", "default": getattr(settings, "EMAIL_USE_SSL", "0")},
         {"key": "EMAIL_FROM", "default": getattr(settings, "EMAIL_FROM", "")},
-        {"key": "EMAIL_TIMEOUT", "default": getattr(settings, "EMAIL_TIMEOUT", 30)},
+        {"key": "EMAIL_TIMEOUT", "default": getattr(settings, "EMAIL_TIMEOUT", 10)},
         {"key": "EMAIL_LAST_TEST_STATUS", "default": ""},
         {"key": "EMAIL_LAST_TEST_MESSAGE", "default": ""},
         {"key": "EMAIL_LAST_TEST_AT", "default": ""},
@@ -102,4 +102,3 @@ def get_email_configuration():
         configuration["EMAIL_USE_SSL"],
         configuration["EMAIL_FROM"],
     )
-

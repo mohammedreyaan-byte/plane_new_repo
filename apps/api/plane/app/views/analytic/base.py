@@ -23,7 +23,6 @@ from plane.db.models import (
     AnalyticView,
     Issue,
     Workspace,
-    Project,
     ProjectMember,
     Cycle,
     Module,
@@ -31,6 +30,7 @@ from plane.db.models import (
 
 from plane.utils.analytics_plot import build_graph_plot, VALID_ANALYTICS_FIELDS, VALID_YAXIS
 from plane.utils.issue_filters import issue_filters
+from plane.utils.permissions.project_scope import project_queryset
 from plane.app.permissions import allow_permission, ROLE
 
 
@@ -406,7 +406,7 @@ class ProjectStatsEndpoint(BaseAPIView):
         if not requested_fields:
             requested_fields = valid_fields
 
-        projects = Project.objects.filter(workspace__slug=slug)
+        projects = project_queryset(request.user, slug)
         if project_ids:
             projects = projects.filter(id__in=project_ids.split(","))
 

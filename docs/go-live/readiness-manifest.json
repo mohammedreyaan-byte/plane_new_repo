@@ -1,0 +1,565 @@
+{
+  "schema": "pln027.readiness.v1",
+  "ticket": "PLN-027",
+  "purpose": "Machine-readable go-live readiness criteria. Automated checks read completed evidence from earlier tickets; human criteria require a completed record in .playwright-mcp/pln027-uat-go-live-result.json.",
+  "evidence_register": ".playwright-mcp/pln027-uat-go-live-result.json",
+  "expected_criteria_count": 41,
+  "note": "The gate is expected to fail while human criteria are pending. A pass must never be inferred from wording in documentation.",
+  "criteria": [
+    {
+      "id": "ENTRY-01",
+      "category": "entry",
+      "description": "All P0 prompts are merged and deployed to staging from the fork.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-01"
+      }
+    },
+    {
+      "id": "ENTRY-02A",
+      "category": "entry",
+      "description": "PROMPT 26 local automated E2E/list and full backend suites are green with unweakened thresholds.",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "all",
+        "checks": [
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln026-e2e-load-result.json",
+            "pointer": "/backend_tests/full/result",
+            "label": "full backend suite",
+            "contains": "891 passed"
+          },
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln026-e2e-load-result.json",
+            "pointer": "/measured_local/playwright/listed_tests",
+            "label": "Playwright suite inventory",
+            "contains": "30 tests in 6 files"
+          },
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln026-e2e-load-result.json",
+            "pointer": "/environment_policy/thresholds_weakened",
+            "label": "thresholds unchanged",
+            "equals": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "ENTRY-02B",
+      "category": "entry",
+      "description": "Live authenticated staging E2E and k6 load runs are green against the release candidate.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-02B"
+      }
+    },
+    {
+      "id": "ENTRY-03",
+      "category": "entry",
+      "description": "PROMPT 21 project-isolation security suite is green.",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "json_value",
+        "path": ".playwright-mcp/issue-pln015-backend-result.json",
+        "pointer": "/tests/0/result",
+        "label": "PLN-015 focused security suite",
+        "contains": "20 passed"
+      }
+    },
+    {
+      "id": "ENTRY-04",
+      "category": "entry",
+      "description": "PROMPT 23 email test matrix is complete on two real providers with SPF/DKIM/DMARC evidence.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-04"
+      }
+    },
+    {
+      "id": "ENTRY-05",
+      "category": "entry",
+      "description": "PROMPT 25 restore drill succeeded at least once with matching counts and object checksums.",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "all",
+        "checks": [
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln025-restore-drill-result.json",
+            "pointer": "/verify",
+            "label": "restore verification",
+            "equals": "PASS"
+          },
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln025-restore-drill-result.json",
+            "pointer": "/count_mismatches",
+            "label": "count mismatches",
+            "equals": []
+          },
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln025-restore-drill-result.json",
+            "pointer": "/object_checksums_match",
+            "label": "object checksums",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "ENTRY-06",
+      "category": "entry",
+      "description": "Staging matches production images and configuration, recorded by image digest.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-06"
+      }
+    },
+    {
+      "id": "ENTRY-07",
+      "category": "entry",
+      "description": "Known defects are triaged: no open P0/P1 and P2 items accepted in writing by the business owner.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-07"
+      }
+    },
+    {
+      "id": "ENTRY-08",
+      "category": "entry",
+      "description": "UAT users, roles and test data exist on staging.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-08"
+      }
+    },
+    {
+      "id": "ENTRY-09",
+      "category": "entry",
+      "description": "A UAT coordinator and a business owner are named.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "ENTRY-09"
+      }
+    },
+    {
+      "id": "EVID-PLN017",
+      "category": "evidence",
+      "description": "PROMPT 17 mailer backend tests are green (the real mailbox matrix remains a separate manual criterion).",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "json_value",
+        "path": "plane-ce-project/.playwright-mcp/issue-pln017-backend-result.json",
+        "pointer": "/verification/focusedBackendTests/result",
+        "label": "PLN-017 focused mailer suite",
+        "contains": "39 passed"
+      }
+    },
+    {
+      "id": "EVID-STACK",
+      "category": "evidence",
+      "description": "Application stack was restored intact under the plane-ce-project Compose project.",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "json_value",
+        "path": ".playwright-mcp/pln026-e2e-load-result.json",
+        "pointer": "/app_stack_restoration/result",
+        "label": "stack restoration",
+        "contains": "all 12 containers Up"
+      }
+    },
+    {
+      "id": "EVID-SHEET",
+      "category": "evidence",
+      "description": "Only the PLN-025 and PLN-026 status cells were changed in the Google Sheet; workbook source of truth was untouched.",
+      "owner": "automated evidence check",
+      "required": true,
+      "verification": {
+        "type": "all",
+        "checks": [
+          {
+            "type": "json_value",
+            "path": ".playwright-mcp/pln026-e2e-load-result.json",
+            "pointer": "/sheet_update/status",
+            "label": "sheet status evidence",
+            "contains": "H26=Done, H27=Done"
+          },
+          {
+            "type": "file_nonempty",
+            "path": ".playwright-mcp/google-sheet-plane-before-final.txt"
+          },
+          {
+            "type": "file_nonempty",
+            "path": ".playwright-mcp/google-sheet-plane-after-final.txt"
+          }
+        ]
+      }
+    },
+    {
+      "id": "UAT-01",
+      "category": "uat",
+      "description": "Workspace and project access: 15 users, role restrictions and visibility verified.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-01"
+      }
+    },
+    {
+      "id": "UAT-02",
+      "category": "uat",
+      "description": "Create and classify work: Bug, Task, Story and Epic with all fields and layouts.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-02"
+      }
+    },
+    {
+      "id": "UAT-03",
+      "category": "uat",
+      "description": "Bug workflow including developer block at Tested and QA-only close.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-03"
+      }
+    },
+    {
+      "id": "UAT-04",
+      "category": "uat",
+      "description": "Task, Story and Epic workflows including the incomplete-Epic guard.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-04"
+      }
+    },
+    {
+      "id": "UAT-05",
+      "category": "uat",
+      "description": "Backlog ranking, cycle planning, carry-over close and burndown.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-05"
+      }
+    },
+    {
+      "id": "UAT-06",
+      "category": "uat",
+      "description": "Board drag rules, blocked columns, filters and saved/shared views.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-06"
+      }
+    },
+    {
+      "id": "UAT-07",
+      "category": "uat",
+      "description": "Modules and Epic linkage with child progress.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-07"
+      }
+    },
+    {
+      "id": "UAT-08",
+      "category": "uat",
+      "description": "Reporting counts against a manual list plus CSV export.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-08"
+      }
+    },
+    {
+      "id": "UAT-09",
+      "category": "uat",
+      "description": "Notifications and email on two providers with unsubscribe.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-09"
+      }
+    },
+    {
+      "id": "UAT-10",
+      "category": "uat",
+      "description": "GitHub PR linkage and Slack channel events, including negative cases.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-10"
+      }
+    },
+    {
+      "id": "UAT-11",
+      "category": "uat",
+      "description": "CI and service-token transitions with cross-project token denial.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-11"
+      }
+    },
+    {
+      "id": "UAT-12",
+      "category": "uat",
+      "description": "Security and isolation across projects, guests and removed members.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "UAT-12"
+      }
+    },
+    {
+      "id": "SIGNOFF-BUSINESS",
+      "category": "signoff",
+      "description": "Business owner signed the UAT summary with the accepted P2/P3 list.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "SIGNOFF-BUSINESS"
+      }
+    },
+    {
+      "id": "SIGNOFF-TECHNICAL",
+      "category": "signoff",
+      "description": "Technical owner signed that fixes are deployed and retested.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "SIGNOFF-TECHNICAL"
+      }
+    },
+    {
+      "id": "TRAIN-01",
+      "category": "training",
+      "description": "All-users training session delivered and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-01"
+      }
+    },
+    {
+      "id": "TRAIN-02",
+      "category": "training",
+      "description": "Developer training session delivered and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-02"
+      }
+    },
+    {
+      "id": "TRAIN-03",
+      "category": "training",
+      "description": "QA training session delivered and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-03"
+      }
+    },
+    {
+      "id": "TRAIN-04",
+      "category": "training",
+      "description": "Project-admin training session delivered and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-04"
+      }
+    },
+    {
+      "id": "TRAIN-05",
+      "category": "training",
+      "description": "Workspace-admin training session delivered and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-05"
+      }
+    },
+    {
+      "id": "TRAIN-MATERIALS",
+      "category": "training",
+      "description": "Quick references, FAQ, who-to-ask page and five task recordings published and accessible.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "TRAIN-MATERIALS"
+      }
+    },
+    {
+      "id": "GO-LIVE-PROD-SMOKE",
+      "category": "go-live",
+      "description": "Production configured and smoke-tested before the go-live window.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "GO-LIVE-PROD-SMOKE"
+      }
+    },
+    {
+      "id": "GO-LIVE-BACKUPS",
+      "category": "go-live",
+      "description": "Final backup taken and verified on go-live day.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "GO-LIVE-BACKUPS"
+      }
+    },
+    {
+      "id": "GO-LIVE-EXECUTED",
+      "category": "go-live",
+      "description": "Go-live executed with monitoring; no rollback trigger hit or rollback completed cleanly.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "GO-LIVE-EXECUTED"
+      }
+    },
+    {
+      "id": "HYPERCARE-STARTED",
+      "category": "hypercare",
+      "description": "Hypercare started with the published support model and daily metrics capture.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "HYPERCARE-STARTED"
+      }
+    },
+    {
+      "id": "DOC-PACKAGE-REVIEWED",
+      "category": "documentation",
+      "description": "Documentation package complete and reviewed by the named owners.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "DOC-PACKAGE-REVIEWED"
+      }
+    },
+    {
+      "id": "EVIDENCE-ATTACHED",
+      "category": "documentation",
+      "description": "UAT tracker, sign-off, training attendance, go-live log and hypercare metrics attached.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "EVIDENCE-ATTACHED"
+      }
+    },
+    {
+      "id": "HANDOVER-SECRETS",
+      "category": "handover",
+      "description": "Ownership of secrets, backups, monitoring and the on-call rota handed over in writing.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "HANDOVER-SECRETS"
+      }
+    },
+    {
+      "id": "HANDOVER-SANDBOX",
+      "category": "handover",
+      "description": "Training sandbox and test accounts disabled in production after hypercare and recorded.",
+      "owner": "",
+      "required": true,
+      "verification": {
+        "type": "manual",
+        "path": ".playwright-mcp/pln027-uat-go-live-result.json",
+        "key": "HANDOVER-SANDBOX"
+      }
+    }
+  ]
+}

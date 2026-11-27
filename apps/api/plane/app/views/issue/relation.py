@@ -22,7 +22,6 @@ from .. import BaseViewSet
 from plane.app.serializers import IssueRelationSerializer, RelatedIssueSerializer
 from plane.app.permissions import ProjectEntityPermission
 from plane.db.models import (
-    Project,
     IssueRelation,
     Issue,
     FileAsset,
@@ -32,6 +31,12 @@ from plane.db.models import (
 from plane.bgtasks.issue_activities_task import issue_activity
 from plane.utils.issue_relation_mapper import get_actual_relation
 from plane.utils.host import base_host
+from plane.utils.permissions.project_scope import (
+    project_queryset,
+    resolve_request_project,
+    scoped_get_or_404,
+    visible_issues,
+)
 
 
 class IssueRelationViewSet(BaseViewSet):
@@ -40,9 +45,11 @@ class IssueRelationViewSet(BaseViewSet):
     permission_classes = [ProjectEntityPermission]
 
     def list(self, request, slug, project_id, issue_id):
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        scoped_get_or_404(visible_issues(request.user, project), pk=issue_id)
         issue_relations = (
             IssueRelation.objects.filter(Q(issue_id=issue_id) | Q(related_issue=issue_id))
-            .filter(workspace__slug=self.kwargs.get("slug"))
+            .filter(workspace__slug=slug, project_id=project_id)
             .select_related("project")
             .select_related("workspace")
             .select_related("issue")
@@ -100,7 +107,7 @@ class IssueRelationViewSet(BaseViewSet):
         )
 
         queryset = (
-            Issue.issue_objects.filter(workspace__slug=slug)
+            visible_issues(request.user, project, Issue.issue_objects.filter(workspace__slug=slug))
             .select_related("workspace", "project", "state", "parent")
             .prefetch_related("assignees", "labels", "issue_module__module")
             .annotate(
@@ -216,14 +223,21 @@ class IssueRelationViewSet(BaseViewSet):
             )
 
         issues = request.data.get("issues", [])
-        project = Project.objects.get(pk=project_id)
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        scoped_get_or_404(visible_issues(request.user, project), pk=issue_id)
 
-        # Scope to workspace to prevent cross-tenant IDOR
-        # Relations can cross projects so only workspace scope is enforced
+        # Cross-project relations are allowed only when the user can access
+        # both ends of the relation; workspace membership alone is not enough.
+        accessible_project_ids = project_queryset(request.user, slug).values_list("id", flat=True)
         issues = list(
-            Issue.issue_objects.filter(
-                workspace__slug=slug,
-                pk__in=issues,
+            visible_issues(
+                request.user,
+                project,
+                Issue.issue_objects.filter(
+                    workspace__slug=slug,
+                    project_id__in=accessible_project_ids,
+                    pk__in=issues,
+                ),
             ).values_list("id", flat=True)
         )
 
@@ -272,12 +286,12 @@ class IssueRelationViewSet(BaseViewSet):
     def remove_relation(self, request, slug, project_id, issue_id):
         related_issue = request.data.get("related_issue", None)
 
-        issue_relations = IssueRelation.objects.filter(
-            workspace__slug=slug,
-        ).filter(
-            Q(issue_id=related_issue, related_issue_id=issue_id) | Q(issue_id=issue_id, related_issue_id=related_issue)
+        project = resolve_request_project(request, {"slug": slug, "project_id": project_id})
+        scoped_get_or_404(visible_issues(request.user, project), pk=issue_id)
+        issue_relations = scoped_get_or_404(
+            IssueRelation.objects.filter(workspace__slug=slug, project_id=project_id),
+            Q(issue_id=related_issue, related_issue_id=issue_id) | Q(issue_id=issue_id, related_issue_id=related_issue),
         )
-        issue_relations = issue_relations.first()
         current_instance = json.dumps(IssueRelationSerializer(issue_relations).data, cls=DjangoJSONEncoder)
         issue_relations.delete()
         issue_activity.delay(

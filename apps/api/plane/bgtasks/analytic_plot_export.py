@@ -11,7 +11,7 @@ import logging
 from celery import shared_task
 
 # Django imports
-from django.core.mail import EmailMultiAlternatives, get_connection
+from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.db.models import Q, Case, Value, When
 from django.db import models
@@ -20,7 +20,13 @@ from django.db.models.functions import Cast, Concat
 # Module imports
 from plane.db.models import Issue
 from plane.license.utils.instance_value import get_smtp_configuration, is_smtp_enabled
-from plane.utils.smtp import SMTPConfigurationError, validate_smtp_configuration
+from plane.utils.smtp import (
+    SMTPConfigurationError,
+    apply_email_test_mode,
+    enforce_outbound_rate_limit,
+    get_smtp_connection,
+    validate_smtp_configuration,
+)
 from plane.utils.analytics_plot import build_graph_plot
 from plane.utils.email import generate_plain_text_from_html
 from plane.utils.exception_logger import log_exception
@@ -64,23 +70,17 @@ def send_export_email(email, slug, csv_buffer, rows):
     configuration = get_smtp_configuration()
     connection = None
     try:
-        # Attachment-bearing mail keeps its own connection, but uses the shared
-        # configuration validation so disabled/invalid SMTP never crashes a worker.
+        # Attachment-bearing mail keeps its own connection, but shares validation,
+        # test-mode redirection and rate limiting with every other outbound path.
         validate_smtp_configuration(configuration)
-        connection = get_connection(
-            host=str(configuration.get("EMAIL_HOST") or "").strip(),
-            port=int(configuration.get("EMAIL_PORT") or 587),
-            username=str(configuration.get("EMAIL_HOST_USER") or "").strip() or None,
-            password=configuration.get("EMAIL_HOST_PASSWORD") or None,
-            use_tls=str(configuration.get("EMAIL_USE_TLS")).lower() in ("1", "true", "yes"),
-            use_ssl=str(configuration.get("EMAIL_USE_SSL")).lower() in ("1", "true", "yes"),
-            timeout=int(configuration.get("EMAIL_TIMEOUT") or 30),
-        )
+        subject, recipients = apply_email_test_mode(subject, [email], configuration)
+        enforce_outbound_rate_limit()
+        connection = get_smtp_connection(configuration)
         msg = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
             from_email=str(configuration.get("EMAIL_FROM")).strip(),
-            to=[email],
+            to=recipients,
             connection=connection,
         )
         msg.attach(f"{slug}-analytics.csv", csv_buffer.getvalue())

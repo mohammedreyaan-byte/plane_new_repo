@@ -10,6 +10,7 @@ from plane.app.permissions import allow_permission, ROLE
 from plane.app.serializers import ExporterHistorySerializer
 from plane.bgtasks.export_task import issue_export_task
 from plane.db.models import ExporterHistory, Project, Workspace
+from plane.utils.permissions.project_scope import active_project_membership
 
 # Module imports
 from .. import BaseAPIView
@@ -29,6 +30,9 @@ class ExportIssuesEndpoint(BaseAPIView):
         project_ids = request.data.get("project", [])
 
         if provider in ["csv", "xlsx", "json"]:
+            for project_id in project_ids:
+                if not active_project_membership(request.user, project_id=project_id, workspace_slug=slug):
+                    return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
             if not project_ids:
                 project_ids = Project.objects.filter(
                     workspace__slug=slug,
@@ -66,16 +70,18 @@ class ExportIssuesEndpoint(BaseAPIView):
 
     @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def get(self, request, slug):
-        exporter_history = ExporterHistory.objects.filter(workspace__slug=slug, type="issue_exports").select_related(
-            "workspace", "initiated_by"
-        )
+        exporter_history = ExporterHistory.objects.filter(
+            workspace__slug=slug, type="issue_exports", initiated_by=request.user
+        ).select_related("workspace", "initiated_by")
 
         if request.GET.get("per_page", False) and request.GET.get("cursor", False):
             return self.paginate(
                 order_by=request.GET.get("order_by", "-created_at"),
                 request=request,
                 queryset=exporter_history,
-                on_results=lambda exporter_history: ExporterHistorySerializer(exporter_history, many=True).data,
+                on_results=lambda exporter_history: ExporterHistorySerializer(
+                    exporter_history, many=True, context={"request": request}
+                ).data,
             )
         else:
             return Response(

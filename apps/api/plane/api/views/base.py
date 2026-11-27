@@ -27,9 +27,28 @@ from plane.api.rate_limit import ApiKeyRateThrottle
 from plane.utils.exception_logger import log_exception
 from plane.utils.paginator import BasePaginator
 from plane.utils.core.mixins import ReadReplicaControlMixin
+from plane.utils.permissions.project_scope import check_project_scope
 
 
 logger = logging.getLogger("plane.api")
+
+
+class ProjectScopeMixin:
+    """Resolve the URL project and enforce membership/token scope (PLN-015)."""
+
+    skip_project_scope = False
+
+    def initial(self, request, *args, **kwargs):
+        # ``request.user`` triggers DRF authentication lazily. Run the token
+        # scope check before DRF's permission checks so a token used in the
+        # wrong workspace keeps its 401 contract.
+        if not self.skip_project_scope:
+            check_project_scope(
+                request,
+                kwargs,
+                hide_membership=getattr(self, "project_scope_hide_membership", False),
+            )
+        super().initial(request, *args, **kwargs)
 
 
 class TimezoneMixin:
@@ -46,7 +65,7 @@ class TimezoneMixin:
             timezone.deactivate()
 
 
-class BaseAPIView(TimezoneMixin, GenericAPIView, ReadReplicaControlMixin, BasePaginator):
+class BaseAPIView(TimezoneMixin, ProjectScopeMixin, GenericAPIView, ReadReplicaControlMixin, BasePaginator):
     authentication_classes = [APIKeyAuthentication]
 
     permission_classes = [IsAuthenticated]
@@ -167,7 +186,7 @@ class BaseAPIView(TimezoneMixin, GenericAPIView, ReadReplicaControlMixin, BasePa
         return expand if expand else None
 
 
-class BaseViewSet(TimezoneMixin, ReadReplicaControlMixin, ModelViewSet, BasePaginator):
+class BaseViewSet(TimezoneMixin, ProjectScopeMixin, ReadReplicaControlMixin, ModelViewSet, BasePaginator):
     model = None
 
     authentication_classes = [APIKeyAuthentication]

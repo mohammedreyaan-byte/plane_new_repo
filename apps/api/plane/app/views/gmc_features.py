@@ -4,6 +4,7 @@
 
 """Production API endpoints for the five GMC frontend features."""
 
+import hashlib
 import json
 from datetime import timedelta
 from typing import Any, Dict
@@ -18,6 +19,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from plane.api.rate_limit import record_webhook_receiver
 from plane.app.permissions import ROLE, allow_permission
 from plane.app.serializers import (
     AutomationRuleSerializer,
@@ -32,7 +34,7 @@ from plane.app.serializers import (
 )
 from plane.bgtasks.gmc_automation_task import evaluate_issue_event
 from plane.bgtasks.gmc_import_task import process_import_job
-from plane.bgtasks.gmc_slack_task import dispatch_slack_event, send_slack_test_message
+from plane.bgtasks.gmc_slack_task import send_slack_test_message
 from plane.bgtasks.gmc_webhook_task import process_webhook_event
 from plane.db.models import (
     APIToken,
@@ -50,7 +52,6 @@ from plane.db.models import (
     Module,
     SlackChannelSubscription,
     State,
-    User,
     Workspace,
     WorkspaceMember,
 )
@@ -91,14 +92,25 @@ def _error(exc: Exception, fallback: str) -> Response:
     return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _webhook_rejection() -> Response:
+    """Uniform rejection: never reveal why a webhook was refused."""
+    return Response(
+        {
+            "error": {
+                "code": "webhook_rejected",
+                "message": "The webhook was not accepted.",
+            }
+        },
+        status=status.HTTP_401_UNAUTHORIZED,
+    )
+
+
 def _workspace(slug: str) -> Workspace:
     return Workspace.objects.get(slug=slug)
 
 
 def _get_integration(slug: str, provider: str) -> ExternalAccountIntegration:
-    return ExternalAccountIntegration.objects.get(
-        workspace__slug=slug, provider=provider.lower(), is_active=True
-    )
+    return ExternalAccountIntegration.objects.get(workspace__slug=slug, provider=provider.lower(), is_active=True)
 
 
 def _get_or_create_token(user, workspace) -> APIToken:
@@ -192,9 +204,13 @@ class ProviderOAuthCallbackEndpoint(APIView):
         error = request.query_params.get("error")
         if error or not code or not state:
             return self._html(False, "Authorization was cancelled or rejected.")
-        authorization = OAuthAuthorizationRequest.objects.filter(
-            state=state, provider=provider, used_at__isnull=True, expires_at__gt=timezone.now()
-        ).select_related("workspace", "user").first()
+        authorization = (
+            OAuthAuthorizationRequest.objects.filter(
+                state=state, provider=provider, used_at__isnull=True, expires_at__gt=timezone.now()
+            )
+            .select_related("workspace", "user")
+            .first()
+        )
         if not authorization:
             return self._html(False, "Authorization state is invalid or expired.")
         try:
@@ -219,8 +235,13 @@ class ProviderOAuthCallbackEndpoint(APIView):
                         "project": None,
                         "account_name": account.get("name", ""),
                         "host": config.get("host", ""),
-                        "scopes": token_data.get("scope", "").split(",") if isinstance(token_data.get("scope"), str) else token_data.get("scope", []),
-                        "metadata": {"authed_user": token_data.get("authed_user", {}), "token_type": token_data.get("token_type", "")},
+                        "scopes": token_data.get("scope", "").split(",")
+                        if isinstance(token_data.get("scope"), str)
+                        else token_data.get("scope", []),
+                        "metadata": {
+                            "authed_user": token_data.get("authed_user", {}),
+                            "token_type": token_data.get("token_type", ""),
+                        },
                         "is_active": True,
                     },
                 )
@@ -248,7 +269,8 @@ class ProviderOAuthCallbackEndpoint(APIView):
                         )
                 if provider == "slack":
                     existing = {
-                        item.channel_id: item for item in SlackChannelSubscription.objects.filter(integration=integration)
+                        item.channel_id: item
+                        for item in SlackChannelSubscription.objects.filter(integration=integration)
                     }
                     for channel in fetch_slack_channels(access_token):
                         subscription = existing.get(channel["channel_id"])
@@ -277,7 +299,8 @@ class ProviderOAuthCallbackEndpoint(APIView):
         safe_message = json.dumps(message).replace("<", "\\u003c").replace(">", "\\u003e")
         return HttpResponse(
             f"<!doctype html><html><body><p>{escape(message)}</p><script>"
-            f"if(window.opener){{window.opener.postMessage({{success: {str(success).lower()}, message: {safe_message}}}, '*');}}"
+            "if(window.opener){window.opener.postMessage("
+            f"{{success: {str(success).lower()}, message: {safe_message}}}, '*');}}"
             f"window.close();</script></body></html>",
             content_type="text/html",
         )
@@ -314,7 +337,9 @@ class RepositoryListEndpoint(BaseAPIView):
                     },
                 )
             ExternalAccountIntegration.objects.filter(pk=integration.pk).update(last_synced_at=timezone.now())
-        return Response(ExternalRepositorySerializer(ExternalRepository.objects.filter(integration=integration), many=True).data)
+        return Response(
+            ExternalRepositorySerializer(ExternalRepository.objects.filter(integration=integration), many=True).data
+        )
 
 
 class RepositoryDetailEndpoint(BaseAPIView):
@@ -352,38 +377,59 @@ class ProviderWebhookEndpoint(APIView):
 
     def post(self, request, provider):
         provider = provider.lower()
-        slug = request.query_params.get("workspace")
-        if not slug:
-            return Response({"error": "workspace query parameter is required"}, status=400)
+        slug = request.query_params.get("workspace", "")
+        record_webhook_receiver(request, slug or "unknown", provider)
+
+        # Every rejection uses the same envelope/status so callers cannot probe
+        # for configured workspaces or integrations.
+        if provider not in PROVIDERS or not slug:
+            return _webhook_rejection()
         integration = ExternalAccountIntegration.objects.filter(
             workspace__slug=slug, provider=provider, is_active=True
         ).first()
         if not integration:
-            return Response({"error": "No active integration for this workspace"}, status=404)
+            return _webhook_rejection()
         secret = integration.get_webhook_secret()
         if not verify_webhook_signature(provider, request.body, dict(request.headers), secret):
-            return Response({"error": "Invalid webhook signature"}, status=401)
+            return _webhook_rejection()
+
         payload = request.data if isinstance(request.data, dict) else {}
         if provider == "slack" and payload.get("type") == "url_verification":
             return Response({"challenge": payload.get("challenge", "")}, status=200)
-        delivery_id = (
+
+        event_type = (
+            request.headers.get("X-Github-Event")
+            or request.headers.get("X-Gitlab-Event")
+            or payload.get("type", "event")
+        )
+        delivery_header = (
             request.headers.get("X-Github-Delivery")
             or request.headers.get("X-Gitlab-Event-Uuid")
             or request.headers.get("X-Slack-Event-Id")
-            or str(timezone.now().timestamp())
         )
-        if ExternalWebhookEvent.objects.filter(delivery_id=delivery_id).exists():
-            return Response({"status": "duplicate"}, status=200)
-        event = ExternalWebhookEvent.objects.create(
-            workspace=integration.workspace,
-            integration=integration,
-            provider=provider,
-            event_type=request.headers.get("X-Github-Event") or request.headers.get("X-Gitlab-Event") or payload.get("type", "event"),
+        if delivery_header:
+            delivery_id = delivery_header
+        else:
+            # Deterministic fallback: a retry of the same signed body must not
+            # create a second event (the old timestamp fallback did).
+            body_hash = hashlib.sha256(request.body).hexdigest()
+            basis = "\x1f".join((provider, slug, event_type, body_hash))
+            delivery_id = hashlib.sha256(basis.encode("utf-8")).hexdigest()
+
+        event, created = ExternalWebhookEvent.objects.get_or_create(
             delivery_id=delivery_id,
-            signature_verified=True,
-            status="received",
-            payload=payload,
+            defaults={
+                "workspace": integration.workspace,
+                "integration": integration,
+                "provider": provider,
+                "event_type": event_type,
+                "signature_verified": True,
+                "status": "received",
+                "payload": payload,
+            },
         )
+        if not created:
+            return Response({"status": "duplicate"}, status=200)
         process_webhook_event.delay(str(event.id))
         return Response({"status": "accepted", "id": str(event.id)}, status=202)
 
@@ -489,9 +535,11 @@ class AutomationOptionsEndpoint(BaseAPIView):
         members = WorkspaceMember.objects.filter(workspace__slug=slug, is_active=True).values(
             "member_id", "member__display_name", "member__email"
         )
-        issue_types = IssueType.objects.filter(
-            workspace__slug=slug, is_active=True, project_issue_types__project_id=project_id
-        ).values("id", "name").distinct()
+        issue_types = (
+            IssueType.objects.filter(workspace__slug=slug, is_active=True, project_issue_types__project_id=project_id)
+            .values("id", "name")
+            .distinct()
+        )
         return Response(
             {
                 "work_items": [
@@ -614,7 +662,9 @@ class ImportErrorsEndpoint(BaseAPIView):
 class SlackEndpoint(BaseAPIView):
     @allow_permission([ROLE.ADMIN], level="WORKSPACE", capability="integration.manage")
     def get(self, request, slug):
-        integration = ExternalAccountIntegration.objects.filter(workspace__slug=slug, provider="slack", is_active=True).first()
+        integration = ExternalAccountIntegration.objects.filter(
+            workspace__slug=slug, provider="slack", is_active=True
+        ).first()
         if not integration:
             return Response(
                 {
@@ -717,7 +767,9 @@ class SlackTestEndpoint(BaseAPIView):
         channel_id = request.data.get("channel_id") or request.data.get("default_channel_id")
         if not channel_id:
             return Response({"error": "A channel is required"}, status=400)
-        if not SlackChannelSubscription.objects.filter(integration=integration, channel_id=channel_id, is_active=True).exists():
+        if not SlackChannelSubscription.objects.filter(
+            integration=integration, channel_id=channel_id, is_active=True
+        ).exists():
             return Response({"error": "Channel is not part of this integration"}, status=400)
         log_id = send_slack_test_message.delay(str(integration.id), str(channel_id)).get(timeout=30)
         return Response({"log_id": log_id}, status=status.HTTP_202_ACCEPTED)
